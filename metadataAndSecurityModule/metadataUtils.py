@@ -154,8 +154,6 @@ async def parse_data(data):
             except Exception as e:
                 retries += 1
                 print(f"Error: {e}, DXS retrying in 1 seconds... | Mint: {token_mint}")
-                # Append CA to data file
-                await text2file(token_mint)
                 await asyncio.sleep(1)
             else:
                 # If successful, exit the loop

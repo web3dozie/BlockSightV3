@@ -216,8 +216,8 @@ async def insert_wallet_into_db(data,
 
 async def is_wallet_outdated(wallet_address,
                              db_path='C:\\Users\\Dozie\\Desktop\\BlockSight\\BlockSight V.1.0.0\\dbs\\wallets.db'):
-    # Calculate the threshold timestamp for 3 days ago
-    one_week_ago = int(time.time()) - (3 * 24 * 60 * 60)
+    # Calculate the threshold timestamp for 1 days ago
+    one_day_ago = int(time.time()) - (24 * 60 * 60)
 
     async with (aiosqlite.connect(db_path) as db):
         # Prepare the SELECT statement to find the last_checked value for the given wallet
@@ -230,7 +230,7 @@ async def is_wallet_outdated(wallet_address,
             # Check if the wallet was found and if its last_checked is older than one week ago
             if not result:
                 return True
-            elif result[0] < one_week_ago:
+            elif result[0] < one_day_ago:
                 return True
             else:
                 return False
