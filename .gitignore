@@ -1,0 +1,7 @@
+venv
+*.txt
+**/**/*.db
+**/**/*.session
+**/**/*.pyc
+**/**/*.tsv
+**/**/*.joblib

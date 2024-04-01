@@ -2,7 +2,7 @@ import time, aiohttp, asyncio, aiosqlite, base58
 
 from pprint import pprint as pr
 
-from priceDataModule.price_utils import is_win_trade
+from priceDataModule.price_utils import is_win_trade, token_prices_to_db
 from metadataAndSecurityModule.metadataUtils import get_metadata
 
 from nacl.signing import VerifyKey
@@ -199,14 +199,14 @@ async def get_weth_price(token_mint='7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963vox
 
 
 async def insert_wallet_into_db(data,
-                                db_path='C:\\Users\\Dozie\\Desktop\\BlockSight\\BlockSight V.1.0.0\\dbs\\wallets.db'):
+                                db_path='/home/imperious/Documents/FreeLance/BST/FIles/dbs/wallets.db'):
     async with aiosqlite.connect(db_path) as db:
         # Prepare the INSERT INTO statement
         query = """
         INSERT OR REPLACE INTO wallets(wallet, trading_frequency, win_rate, overall_grade, avg_size, last_checked, pnl, 
-        n_trading_frequency, n_win_rate, n_avg_size, n_pnl)
+        n_trading_frequency, n_win_rate, n_avg_size, n_pnl, window)
         VALUES(:wallet, :trading_frequency, :win_rate, :overall_grade, :avg_size, :last_checked, :pnl, 
-        :n_trading_frequency, :n_win_rate, :n_avg_size, :n_pnl)
+        :n_trading_frequency, :n_win_rate, :n_avg_size, :n_pnl, :window)
         """
         # Execute the query
         await db.execute(query, data)
@@ -263,12 +263,12 @@ async def get_wallet_data(wallet_address,
                 return {}  # Return None if no wallet is found
 
 
-async def process_wallet(wallet_address):
+async def process_wallet(wallet_address, window=31):
+    
     if await is_wallet_outdated(wallet_address):
         # Get last 30 days of SPL Buy TXs
-        thirty_day_txs = await get_wallet_txs(wallet_address, start_days_ago=31)
-        thirty_day_swaps = await parse_for_swaps(thirty_day_txs)
-
+        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
+        
         sol_price = await get_sol_price()
 
         pnl = round(await calculate_pnl(thirty_day_swaps, sol_price), 2)
@@ -277,6 +277,13 @@ async def process_wallet(wallet_address):
         thirty_day_buys = deduplicate_transactions(thirty_day_buys)
 
         trades = len(thirty_day_buys)
+        token_mints_and_timestamps = []
+        token_mints_and_timestamps = [[buy["out_mint"], buy["timestamp"]] for buy in thirty_day_buys if [buy["out_mint"], buy["timestamp"]] not in token_mints_and_timestamps]
+
+        #fetch token info up front and at once
+        tasks = [token_prices_to_db(tmt[0], tmt[1], int(time.time())) for tmt in token_mints_and_timestamps]
+        await asyncio.gather(*tasks)
+
         wins = 0
         size = 0
         weth_price = await get_weth_price()
@@ -324,7 +331,8 @@ async def process_wallet(wallet_address):
             'overall_grade': grades['overall'],  # CHAR
             'avg_size': grades['size'],  # CHAR
             'last_checked': int(time.time()),  # INTEGER
-            'pnl': grades['pnl']
+            'pnl': grades['pnl'],
+            "window": f"{window}d".zfill(3)
             }
 
         wallet_summary = {**wallet_summary, **data_dump}
@@ -454,20 +462,69 @@ async def parse_tx_get_swaps(tx: dict):
         return payload
 
 
-async def get_wallet_txs(wallet: str, api_key='cfc89cfc-2749-487b-9a76-58b989e70909', start_days_ago=30, tx_type=''):
+"window should be 1, 7, or 30. represents no. of days to fetch txs for"
+async def get_wallet_txs(wallet: str, api_key='cfc89cfc-2749-487b-9a76-58b989e70909', tx_type='', path_to_tx_db='/home/imperious/Documents/FreeLance/BST/FIles/dbs/txs.db', window=30):
+    """
+    new workflow:
+
+    check current time vs last time in db (select max from trx ) (done)
+
+    if diff > 1 day, make api request with current functionality using diff (done)
+
+    i.e, if the diff is 7 days, fetch last 7 days of trx with api (done)
+
+    modify loop to ensure no duplicate trx's are inserted - check timestamp (done)
+
+    if no trx's for wallet in db, set diff to 30 days and execute above (done)
+
+    parse for swaps and then insert into db (done) 
+
+    use window to pull appropriate range of records from db (done)
+
+    return records in the correct format (done)
+
+    hm. problem. 
+    db is written to contain only swaps. format is different from format returned by API.
+    will probably have to move swap filtering and token loading into this function
+    and execute them before inserting txs
+    will also modify function to directly return swaps
+    """
+
+    last_db_tx_timestamp = 0
+    async with aiosqlite.connect(path_to_tx_db) as conn:
+            async with conn.cursor() as cursor:
+                # Prepare and execute the SQL query asynchronously
+                query = "SELECT MAX(timestamp) from txs where wallet = ?"
+                await cursor.execute(query, (wallet,))
+
+                # Fetch the result asynchronously
+                last_db_tx_timestamp = (await cursor.fetchone())[0]
+    time_since_last_update = 0
+    days_of_data_to_fetch = 0
+    
+    if not last_db_tx_timestamp:
+        time_since_last_update = 31*24*60*60
+    else:
+        time_since_last_update = int(time.time()) - last_db_tx_timestamp
+    
+    if time_since_last_update > 24*60*60: #seconds in one day
+        days_of_data_to_fetch = round(time_since_last_update/ (24*60*60))
+
+
+    
     base_url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}"
     if tx_type != '':
         base_url += f'&type={tx_type}'
-    secs_ago = int(start_days_ago * 24 * 60 * 60)
+    secs_ago = int(days_of_data_to_fetch * 24 * 60 * 60)
     count = 0
     tx_data = []
     last_tx_sig = None
     zero_trigger = True
     start_time = int(time.time())
-    last_tx_timestamp = int(time.time())  # Current timestamp
+    right_now_timestamp = int(time.time())  # Current timestamp
     max_retries = 3  # Number of retries
 
-    while (last_tx_timestamp >= (start_time - secs_ago)) and zero_trigger and (count <= 35):
+    while (right_now_timestamp >= (start_time - secs_ago)) and zero_trigger and (count <= 35) and days_of_data_to_fetch > 0:
         url = base_url
         count += 1
         if last_tx_sig:  # Append 'before' parameter only for subsequent requests
@@ -489,12 +546,15 @@ async def get_wallet_txs(wallet: str, api_key='cfc89cfc-2749-487b-9a76-58b989e70
                                 break
 
                             for tx in tx_data_batch:
+                                
+                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp:
+                                    continue
                                 tx_data.append(tx)
 
                             last_tx = tx_data_batch[-1]
                             last_tx_sig = last_tx['signature']
 
-                            last_tx_timestamp = last_tx['timestamp']
+                            right_now_timestamp = last_tx['timestamp']
                             break  # Break from retry loop on success
 
                         else:
@@ -508,7 +568,47 @@ async def get_wallet_txs(wallet: str, api_key='cfc89cfc-2749-487b-9a76-58b989e70
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
                 return []
-    return tx_data
+    
+    # slow version of the comprehension 
+    # trfsList = [tx["tokenTransfers"] for tx in thirty_day_txs if (tx['feePayer'] != 'DCAKxn5PFNN1mBREPWGdk1RXg5aVH9rPErLfBFEi2Emb' and tx['source'] not in ("JUPITER", "UNKNOWN"))]
+    trfsList = [tx["tokenTransfers"] for tx in tx_data]
+    mints = {trf["mint"] for trfs in trfsList for trf in trfs}
+    tasks = [get_metadata(mint) for mint in mints]
+    await asyncio.gather(*tasks)
+
+    swap_txs = await parse_for_swaps(tx_data)
+    swap_txs_tuples = [list(swap.values()) for swap in swap_txs]
+    print("swap tuples", swap_txs_tuples)
+
+    try:
+        async with aiosqlite.connect(path_to_tx_db) as conn:
+                async with conn.cursor() as cursor:
+                    # Prepare and execute the SQL query asynchronously
+                    query = "insert into txs values (?, ?, ?, ?, ?, ?, ?)"
+                    await cursor.executemany(query, swap_txs_tuples)
+                    await conn.commit()
+    except Exception as e:
+        print(f"Error {e} while inserting new swaps for wallet {wallet} into db.")
+        return []
+    
+    swap_txs_in_window = []
+    try:
+        async with aiosqlite.connect(path_to_tx_db) as conn:
+                async with conn.cursor() as cursor:
+                    # Prepare and execute the SQL query asynchronously
+                    query = "select * from txs where wallet = ? and timestamp between ? and ?"
+                    await cursor.execute(query, (wallet, (right_now_timestamp - window *24 *60 *60), right_now_timestamp,))
+
+                    rows = await cursor.fetchall()
+                    columns = [description[0] for description in cursor.description]
+                    swap_txs_in_window = [dict(zip(columns, row)) for row in rows]
+
+    except Exception as e:
+        print(f"Error {e} while retrieving swaps for wallet {wallet} from db.")
+        return []
+    
+
+    return swap_txs_in_window
 
 
 async def parse_for_swaps(tx_data):
