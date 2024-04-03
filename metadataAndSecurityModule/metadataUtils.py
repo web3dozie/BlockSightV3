@@ -12,47 +12,11 @@ helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 
 # LP PERCENTAGE BURN AND LOCK
 async def get_just_supply(token_mint: str, api_key=helius_api_key):
-    token_mint = [token_mint]
-    url = f"https://api.helius.xyz/v0/token-metadata?api-key={api_key}"
+    # TODO get supply from db (if not in db
+    # fetch, add to db and re-get from db
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json={
-            'mintAccounts': token_mint,
-            'includeOffChain': True,
-            'disableCache': False,
-        }) as response:
-            try:
-                supply_data = await response.json()
-            except aiohttp.ContentTypeError:
-                # If there's a ContentTypeError, read the response text
-                print("ContentTypeError occurred. Reading response text.")
-                response_text = await response.text()
-                print("Response text:", response_text)
-                return None
-
-    try:
-        onchain_account_info = supply_data[0]['onChainAccountInfo']
-
-        # DECIMALS
-        decimals_no = onchain_account_info['accountInfo']['data']['parsed']['info']['decimals']
-
-    except KeyError:
-        return 1
-
-    # SUPPLY
-    sup = int(int(onchain_account_info['accountInfo']['data']['parsed']['info']['supply']) / (10 ** decimals_no))
-    return max(sup, 1)
-
-
-async def text2file(text, file_path='C:\\Users\\dozie\\Desktop\\BlockSight\\BlockSight V.1.0.0\\pumpfun.txt'):
-    """
-    Appends text to a new line in the specified file asynchronously.
-
-    :param text: The text to append.
-    :param file_path: The path to the file where the text will be appended.
-    """
-    async with aiofiles.open(file_path, mode='a') as file:
-        await file.write(f'\n{text}')
+    pass
+    # return supply
 
 
 async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30, tx_type=''):
@@ -95,7 +59,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30,
                             break  # Break from retry loop on success
 
                         else:
-                            raise Exception(f"Failed to fetch data, status code: {response.status}")
+                            raise Exception(f"Failed to fetch tx data for {wallet}, status code: {response.status}")
 
             except Exception as e:
                 retries += 1
@@ -109,320 +73,50 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30,
 
 
 async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
-    token_mint = [token_mint]
-    url = f"https://api.helius.xyz/v0/token-metadata?api-key={api_key}"
+    url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
+    headers = {
+        'Content-Type': 'application/json',
+    }
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "web3dozie",
+        "method": "getAsset",
+        "params": {
+            "id": token_mint,
+            "displayOptions": {
+                "showFungible": True
+            }
+        },
+    }
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(url, json={
-            'mintAccounts': token_mint,
-            'includeOffChain': True,
-            'disableCache': False,
-        }) as response:
-            try:
-                data = await response.json()
-            except aiohttp.ContentTypeError:
-                # If there's a ContentTypeError, read the response text
-                print("ContentTypeError occurred. Reading response text.")
-                response_text = await response.text()
-                print("Response text:", response_text)
-                return None
-    return data
-
-
-async def parse_data(data):
-    async def get_dxs_data(token_mint):
-        url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
-        max_retries = 1  # Number of retries
-        retries = 0
-
-        while retries < max_retries:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            token_data = await response.json()  # This is a list of pools the token has open
-                            lp_time = int(token_data['pairs'][0]['pairCreatedAt'] / 1000)
-
-                            return {
-                                'lp_creation_time': lp_time,
-                                'pool_address': token_data['pairs'][0]['url'].split('/')[-1]
-                            }
-
-                        else:
-                            raise Exception(f"Failed to fetch data, status code: {response.status}")
-
-            except Exception as e:
-                retries += 1
-                print(f"Error: {e}, DXS retrying in 1 seconds... | Mint: {token_mint}")
-                await asyncio.sleep(1)
+        async with session.post(url, headers=headers, json=payload) as response:
+            if response.status == 200:  # Checking if request was successful
+                result = await response.json()
+                pr(result.get('result'))
             else:
-                # If successful, exit the loop
-                break
-
-        if retries >= max_retries:
-            # print("Failed to fetch data after retries.")
-            return {
-                'lp_creation_time': None,
-                'pool_address': None
-            }
-
-    legacy_meta = data[0]['legacyMetadata']
-    offchain_meta = data[0]['offChainMetadata']
-    onchain_meta = data[0]['onChainMetadata']
-    onchain_info = data[0]['onChainAccountInfo']
-
-    # MINT
-    mint = data[0]['account']
-
-    default_trash = {
-        'token_mint': mint,
-        'symbol': 'NO_SYMBOL',
-        'name': 'NO_NAME',
-        'img_url': 'https://cdn-icons-png.flaticon.com/512/2748/2748558.png',
-        'twitter': '',
-        'telegram': '',
-        'other_links': '',
-        'lp_creation_time': 0,
-        'deployer': '',
-        'supply': 1,
-        'decimals': 1,
-        'is_mintable': None,
-        'is_mutable': None,
-        'lp_burnt_percentage': None,
-        'lp_locked_percentage': None
-    }
-
-    if (onchain_meta['error'] == 'EMPTY_ACCOUNT') and (legacy_meta is None):
-        # pr('INVALID TOKEN')
-        # pr(data)
-        return default_trash
-
-    # DXS DATA
-    dxs_data = await get_dxs_data(mint)
-
-    if dxs_data == {
-        'lp_creation_time': None,
-        'pool_address': None
-    }:
-        return default_trash
-
-    # SYMBOL
-    try:
-        symbol = onchain_meta['metadata']['data']['symbol']
-    except TypeError or KeyError:
-        try:
-            symbol = legacy_meta['symbol']
-        except KeyError or TypeError:
-            pr('INVALID SYMBOL')
-            pr(data)
-            symbol = 'NOT_FOUND'
-
-    # NAME
-    try:
-        name = onchain_meta['metadata']['data']['name']
-    except TypeError or KeyError:
-        try:
-            name = legacy_meta['name']
-        except KeyError or TypeError:
-            pr('INVALID NAME')
-            pr(data)
-            name = 'NOT_FOUND'
-
-    # IMG_URL
-    try:
-        img_url = offchain_meta['metadata']['image']
-    except (TypeError, KeyError):
-        try:
-            img_url = legacy_meta['logoURI']
-        except (TypeError, KeyError):
-            pr('INVALID URL')
-            pr(data)
-            img_url = 'https://cdn-icons-png.flaticon.com/512/2748/2748558.png'
-
-    # SOCIALS
-    def get_social_links():
-        def extract_links(text):
-            # Regex pattern to find URLs
-            url_pattern = r'https?://[^\s,\'"]+'
-            urls = re.findall(url_pattern, text)
-
-            # Categorizing URLs
-            telegram_links = [url for url in urls if 't.me' in url]
-            twitter_links = list(set([url for url in urls if 'x.com' in url or 'twitter.com' in url]))
-            website_links = [url for url in urls if url not in telegram_links and url not in twitter_links]
-            website_links = [url for url in website_links if len(url) < 50]
-
-            return {
-                'twitter': twitter_links,
-                'telegram': telegram_links,
-                'others': website_links
-            }
-
-        try:
-            # check description
-            try:
-                social_links = str(offchain_meta['metadata'])
-            except KeyError:
-                social_links = ""
-            links = extract_links(social_links)
-
-            # if desc is empty, check extensions
-            if links == {'others': [], 'telegram': [], 'twitter': []}:
-                try:
-                    social_links = str(offchain_meta['metadata']['extensions'])
-                except KeyError:
-                    social_links = ""
-                links = extract_links(social_links)
-
-                # if extensions are empty, raise an error and check legacy metadata
-                if links == {'others': [], 'telegram': [], 'twitter': []}:
-                    raise TypeError
-
-        except TypeError:
-            try:
-                social_links = str(legacy_meta['extensions'])
-                links = extract_links(social_links)
-
-            except TypeError:
-                links = {'others': [], 'telegram': [], 'twitter': []}
-
-        return links
-
-    socials = get_social_links()
-
-    twitter = socials['twitter']
-
-    if twitter:
-        twitter = twitter[0]
-    else:
-        twitter = ''
-
-    telegram = socials['telegram']
-    if telegram:
-        telegram = telegram[0]
-    else:
-        telegram = ''
-
-    other_links = socials['others']
-    other_links = ', '.join(other_links)
-
-    # LP CREATION TIME
-    lp_creation_time = dxs_data['lp_creation_time']
-
-    # DEPLOYER
-    try:
-        deployer = onchain_meta['metadata']['updateAuthority']
-    except TypeError:
-        try:
-            deployer = onchain_info['accountInfo']['data']['parsed']['info']['mintAuthority']
-        except Exception as f:
-            pr(data)
-            raise f
-
-    # DECIMALS
-    decimals = onchain_info['accountInfo']['data']['parsed']['info']['decimals']
-
-    # SUPPLY
-    supply = int(int(onchain_info['accountInfo']['data']['parsed']['info']['supply']) / (10 ** decimals))
-
-    # MINTABLE
-    if onchain_info['accountInfo']['data']['parsed']['info']['mintAuthority']:
-        is_mintable = True
-    else:
-        is_mintable = False
-
-    # MUTABLE
-    try:
-        is_mutable = onchain_meta['metadata']['isMutable']
-    except TypeError:
-        pr(data)
-        is_mutable = False
-
-    async def get_locked_lp_amount(lp_mint):
-        txs = await get_wallet_txs(lp_mint, start_days_ago=99)
-        lock_txs = []
-        for tx in txs:
-            if 'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m' in str(tx):
-                lock_txs.append(tx)
-
-        locked_amount = 0
-
-        for lock_tx in lock_txs:
-            fee_payer = lock_tx['feePayer']
-            token_transfers = lock_tx['tokenTransfers']
-            for transfer in token_transfers:
-                if transfer['fromUserAccount'] == fee_payer:
-                    # It is a lock
-                    locked_amount += transfer['tokenAmount']
-                else:
-                    locked_amount -= transfer['tokenAmount']
-
-        return locked_amount
-
-    # LP BURN
-    # Get deploy txs
-    deploy_tx = await get_wallet_txs(deployer, start_days_ago=1000, tx_type="CREATE_POOL")
-
-    try:
-        deploy_tx = deploy_tx[0]
-        deploy_trf = deploy_tx['tokenTransfers'][-1]
-
-        lp_address = deploy_trf['mint']
-        initial_supply = deploy_trf['tokenAmount']
-        current_supply = await get_just_supply(lp_address)
-
-        percent_burnt = int(100 - (current_supply / initial_supply * 100))
-
-        locked_supply = await get_locked_lp_amount(lp_address)
-
-        percent_locked = int(100 - (locked_supply / initial_supply * 100))
-
-    except Exception as deployer_error:
-        print(deployer_error)
-        percent_burnt = None
-        percent_locked = None
-
-    # TOP 20 HOLDERS
-
-    return {
-        'token_mint': mint,
-        'symbol': symbol,
-        'name': name,
-        'img_url': img_url,
-        'twitter': twitter,
-        'telegram': telegram,
-        'other_links': other_links,
-        'lp_creation_time': lp_creation_time,
-        'deployer': deployer,
-        'supply': supply,
-        'decimals': decimals,
-        'is_mintable': is_mintable,
-        'is_mutable': is_mutable,
-        'lp_burnt_percentage': percent_burnt,
-        'lp_locked_percentage': percent_locked
-    }
+                print("Failed to fetch asset. Status code:", response.status)
 
 
 async def get_metadata(token_mint):
-    # if token is not in DB already, fetch metadata with APIs [else get it from the db]
+    # if token is not in DB already, fetch metadata with helius API and add it to db[else get it from the db]
+
     if not await mint_exists(token_mint):
-        data = await retrieve_metadata(token_mint)
-        parsed_data = await parse_data(data)
+        metadata = await retrieve_metadata(token_mint)
 
         # Add metadata to db
         try:
-            await add_metadata_to_db(parsed_data)
+            await add_metadata_to_db(metadata)
         except Exception as metadata_error:
             pr('METADATA ERROR')
-            pr(parsed_data)
             pr(metadata_error)
             raise metadata_error
 
     else:
         # retrieve metadata from db
-        parsed_data = await get_metadata_from_db(token_mint)
+        metadata = await get_metadata_from_db(token_mint)
 
-    return parsed_data
+    return metadata
 
 
 async def get_dexscreener_data(token_mint):
