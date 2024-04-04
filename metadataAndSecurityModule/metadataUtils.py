@@ -200,6 +200,7 @@ async def get_target_slot_timestamp(slot_number):
 
     extended_ranges = [[1, -1], [2, -2], [3, -3], [4, -4], [5, -5], [6, -6], [7, -7], [8, -8], [9, -9], [10, -10]]
 
+    # TODO Potential Failure Point
     for delta_range in [initial_range] + extended_ranges:
         for delta in delta_range:
             try:
