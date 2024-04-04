@@ -10,7 +10,6 @@ from solders.pubkey import Pubkey
 from datetime import datetime, timedelta
 from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db
 
-
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 
 
@@ -198,7 +197,8 @@ async def get_target_slot_timestamp(slot_number):
     cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
     client = Client(cluster_url)
     initial_range = [0]  # Starting with the current slot
-    extended_ranges = [[1, -1], [2, -2], [3, -3]]  # Expanding the range progressively
+
+    extended_ranges = [[1, -1], [2, -2], [3, -3], [4, -4], [5, -5], [6, -6], [7, -7], [8, -8], [9, -9], [10, -10]]
 
     for delta_range in [initial_range] + extended_ranges:
         for delta in delta_range:
@@ -206,6 +206,7 @@ async def get_target_slot_timestamp(slot_number):
                 slot_timestamp = client.get_block_time(slot_number + delta).value
                 return slot_timestamp  # Return on the first successful fetch
             except RPCException:
+                await asyncio.sleep(0.5)
                 continue  # Try the next delta in the range
 
     # If the function hasn't returned by this point, no valid timestamp was found
@@ -246,6 +247,9 @@ async def deep_deploy_tx_search(target_timestamp):
 
 
 async def parse_tx_list(tx_list, api_key=helius_api_key):
+    if tx_list == ['']:
+        return []
+
     url = f"https://api.helius.xyz/v0/transactions/?api-key={api_key}"
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json={"transactions": tx_list}) as response:
@@ -281,7 +285,12 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                 result = {}
 
     mint = token_mint
-    symbol = result['content']['metadata']['symbol']
+    try:
+        symbol = result['content']['metadata']['symbol']
+    except KeyError:
+        print(f'Mint has an error could not retrieve metadata: {mint}')
+        return
+
     name = result['content']['metadata']['name']
 
     # check two places and fall back on a default img_url
@@ -291,7 +300,11 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
         else 'https://cdn-icons-png.flaticon.com/512/2748/2748558.png')
 
     # for socials check description for 3 or more links (if it isn't there pass to other function)
-    description = result['content']['metadata']['description']
+    try:
+        description = result['content']['metadata']['description']
+    except KeyError:
+        description = ''
+
     socials = extract_links(description)
 
     # if any key in the dict is empty --> use the json metadata
@@ -354,7 +367,11 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
 
                     trying_with = deploy_slot + tries
 
-                    block_txs = client.get_block(trying_with, max_supported_transaction_version=0).to_json()
+                    try:
+                        block_txs = client.get_block(trying_with, max_supported_transaction_version=0).to_json()
+                    except RPCException:
+                        continue
+
                     block_txs = json.loads(block_txs)['result']['transactions']
                     slot_txs_plus_10.extend(block_txs)
 
@@ -396,9 +413,31 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                             relevant_early_txs_confirmed.append(tx)
                             break
 
-                deploy_sig = relevant_early_txs_confirmed[0]['signature']
+                try:
+                    deploy_sig = relevant_early_txs_confirmed[0]['signature']
+                except IndexError:
+                    deploy_sig = ''
 
     deploy_tx = await parse_tx_list([deploy_sig])
+
+    if not deploy_tx:
+        return {
+            'token_mint': mint,
+            'symbol': symbol,
+            'name': name,
+            'img_url': img_url,
+            'starting_mc': None,
+            'starting_liq': None,
+            'twitter': None,
+            'telegram': None,
+            'other_links': None,
+            'lp_creation_time': None,
+            'deployer': deployer,
+            'bundled': None,
+            'airdropped': None,
+            'supply': supply,
+            'decimals': decimals
+        }
 
     slot = deploy_tx[0]['slot']
     deploy_sig = deploy_tx[0]['signature']
@@ -471,6 +510,15 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
 
     print(f'Airdropped: {airdropped}%')
 
+    if not twitter:
+        twitter = [None]
+
+    if not telegram:
+        telegram = [None]
+
+    if not other_links:
+        other_links = [None]
+
     payload = {
         'token_mint': mint,
         'symbol': symbol,
@@ -495,7 +543,11 @@ async def get_metadata(token_mint):
     # if token is not in DB already, fetch metadata with helius API and add it to db[else get it from the db]
 
     if not await mint_exists(token_mint):
+        # print(token_mint)
         metadata = await retrieve_metadata(token_mint)
+
+        if not metadata:
+            return
 
         # Add metadata to db
         try:

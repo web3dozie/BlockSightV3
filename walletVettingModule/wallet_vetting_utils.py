@@ -283,19 +283,24 @@ async def process_wallet(wallet_address, window=30):
         # Get last 30 days of SPL Buy TXs
         thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
 
-        pprint(thirty_day_swaps)
-        
+        # pprint(thirty_day_swaps)
+
         sol_price = await get_sol_price()
 
         pnl = round(await calculate_pnl(thirty_day_swaps, sol_price), 2)
 
+        # pprint(f'PNL DONE: ${pnl}')
+
         thirty_day_buys = filter_for_buys(thirty_day_swaps)
+        pprint(f'BUY FILTERED')
         thirty_day_buys = deduplicate_transactions(thirty_day_buys)
 
         trades = len(thirty_day_buys)
         token_mints_and_timestamps = []
         token_mints_and_timestamps = [[buy["out_mint"], buy["timestamp"]] for buy in thirty_day_buys
                                       if [buy["out_mint"], buy["timestamp"]] not in token_mints_and_timestamps]
+
+        # pprint(f'TMT: \n{token_mints_and_timestamps}')
 
         # fetch token info up front and at once
         tasks = [token_prices_to_db(tmt[0], tmt[1], int(time.time())) for tmt in token_mints_and_timestamps]
@@ -340,7 +345,7 @@ async def process_wallet(wallet_address, window=30):
             'last_checked': int(time.time()),
             'pnl': pnl,
             "window_value": f"{window}d".zfill(3)
-            }
+        }
 
         pprint(f'{wallet_address[:5]}\'s Wallet Summary')
         pprint(wallet_summary)
@@ -473,120 +478,123 @@ async def parse_tx_get_swaps(tx: dict):
 async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=31):
     last_db_tx_timestamp = 0
     conn = await asyncpg.connect(dsn=db_url)
-    try:
-        # Fetching the latest transaction timestamp for the wallet
-        query = "SELECT MAX(timestamp) FROM txs WHERE wallet = $1"
-        last_db_tx_timestamp = await conn.fetchval(query, wallet)
+    # try:
+    # Fetching the latest transaction timestamp for the wallet
+    query = "SELECT MAX(timestamp) FROM txs WHERE wallet = $1"
+    last_db_tx_timestamp = await conn.fetchval(query, wallet)
 
-        # print(f'LAST DB TIMESTAMP: {last_db_tx_timestamp}')
+    # print(f'LAST DB TIMESTAMP: {last_db_tx_timestamp}')
 
-        time_since_last_update = 0
-        days_of_data_to_fetch = 0
+    time_since_last_update = 0
+    days_of_data_to_fetch = 0
 
-        if not last_db_tx_timestamp:
-            time_since_last_update = 31 * 24 * 60 * 60
-        else:
-            time_since_last_update = int(time.time()) - last_db_tx_timestamp
+    if not last_db_tx_timestamp:
+        time_since_last_update = 31 * 24 * 60 * 60
+    else:
+        time_since_last_update = int(time.time()) - last_db_tx_timestamp
 
-        if time_since_last_update > 24 * 60 * 60:  # seconds in one day
-            days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
+    if time_since_last_update > 24 * 60 * 60:  # seconds in one day
+        days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
 
-        base_url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}"
-        if tx_type != '':
-            base_url += f'&type={tx_type}'
-        secs_ago = int(days_of_data_to_fetch * 24 * 60 * 60)
-        count = 0
-        tx_data = []
-        last_tx_sig = None
-        zero_trigger = True
-        start_time = int(time.time())
-        right_now_timestamp = int(time.time())  # Current timestamp
-        max_retries = 3  # Number of retries
+    base_url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}"
+    if tx_type != '':
+        base_url += f'&type={tx_type}'
+    secs_ago = int(days_of_data_to_fetch * 24 * 60 * 60)
+    count = 0
+    tx_data = []
+    last_tx_sig = None
+    zero_trigger = True
+    start_time = int(time.time())
+    right_now_timestamp = int(time.time())  # Current timestamp
+    max_retries = 3  # Number of retries
 
-        while ((right_now_timestamp >= (start_time - secs_ago)) and zero_trigger and (count <= 35)
-               and days_of_data_to_fetch > 0):
-            url = base_url
-            count += 1
-            if last_tx_sig:  # Append 'before' parameter only for subsequent requests
-                url += f'&before={last_tx_sig}'
+    while ((right_now_timestamp >= (start_time - secs_ago)) and zero_trigger and (count <= 35)
+           and days_of_data_to_fetch > 0):
+        url = base_url
+        count += 1
+        if last_tx_sig:  # Append 'before' parameter only for subsequent requests
+            url += f'&before={last_tx_sig}'
 
-            if count > 35:
-                return tx_data
+        if count > 35:
+            return tx_data
 
-            retries = 0
-            while retries < max_retries:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url) as response:
-                            if response.status == 200:
-                                tx_data_batch = await response.json()
+        retries = 0
+        while retries < max_retries:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            tx_data_batch = await response.json()
 
-                                if not tx_data_batch:  # Empty response, exit loop
-                                    zero_trigger = False
-                                    break
+                            if not tx_data_batch:  # Empty response, exit loop
+                                zero_trigger = False
+                                break
 
-                                for tx in tx_data_batch:
+                            for tx in tx_data_batch:
 
-                                    if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp:
-                                        continue
-                                    tx_data.append(tx)
+                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp:
+                                    continue
+                                tx_data.append(tx)
 
-                                last_tx = tx_data_batch[-1]
-                                last_tx_sig = last_tx['signature']
+                            last_tx = tx_data_batch[-1]
+                            last_tx_sig = last_tx['signature']
 
-                                right_now_timestamp = last_tx['timestamp']
-                                break  # Break from retry loop on success
+                            right_now_timestamp = last_tx['timestamp']
+                            break  # Break from retry loop on success
 
-                            else:
-                                raise Exception(f"Failed to fetch data, status code: {response.status}")
+                        else:
+                            raise Exception(f"Failed to fetch data, status code: {response.status}")
 
-                except Exception as e:
-                    retries += 1
-                    print(f"Error: {e}, retrying in 5 seconds...")
-                    await asyncio.sleep(5)
+            except Exception as e:
+                retries += 1
+                print(f"Error: {e}, retrying in 5 seconds...")
+                await asyncio.sleep(5)
 
-                if retries >= max_retries:
-                    print("Failed to fetch data after retries.")
-                    return []
+            if retries >= max_retries:
+                print("Failed to fetch data after retries.")
+                return []
 
-        # slow version of the comprehension
-        # trfsList = [tx["tokenTransfers"] for tx in thirty_day_txs if (tx['feePayer'] !=
-        # 'DCAKxn5PFNN1mBREPWGdk1RXg5aVH9rPErLfBFEi2Emb' and tx['source'] not in ("JUPITER", "UNKNOWN"))]
+    # slow version of the comprehension
+    # trfsList = [tx["tokenTransfers"] for tx in thirty_day_txs if (tx['feePayer'] !=
+    # 'DCAKxn5PFNN1mBREPWGdk1RXg5aVH9rPErLfBFEi2Emb' and tx['source'] not in ("JUPITER", "UNKNOWN"))]
+    print('all batches done')
+    # GET METADATA IS CALLED ON BAD TOKENS
+    # FILTER DOWN BEFORE GATHERING TASKS
+    '''
+    trfsList = [tx["tokenTransfers"] for tx in tx_data]
+    mints = {trf["mint"] for trfs in trfsList for trf in trfs}
+    tasks = [get_metadata(mint) for mint in mints]
+    await asyncio.gather(*tasks)
+    '''
 
-        # GET METADATA IS CALLED ON BAD TOKENS
-        # FILTER DOWN BEFORE GATHERING TASKS
-        '''
-        trfsList = [tx["tokenTransfers"] for tx in tx_data]
-        mints = {trf["mint"] for trfs in trfsList for trf in trfs}
-        tasks = [get_metadata(mint) for mint in mints]
-        await asyncio.gather(*tasks)
-        '''
+    swap_txs = await parse_for_swaps(tx_data)
+    print('SWAPS DONE')
+    pprint(swap_txs)
+    swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
+                        tx['timestamp']) for tx in swap_txs]
 
-        swap_txs = await parse_for_swaps(tx_data)
-        pprint(swap_txs)
-        swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
-                            tx['timestamp']) for tx in swap_txs]
+    # Inserting new swap transactions into the database
+    if swap_txs_tuples:
+        await conn.executemany(
+            "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (txid) DO NOTHING",
+            swap_txs_tuples
+        )
 
-        # Inserting new swap transactions into the database
-        if swap_txs_tuples:
-            await conn.executemany(
-                "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (txid) DO NOTHING",
-                swap_txs_tuples
-            )
+    # Retrieving swap transactions within a specific time window
+    end_time = int(time.time())
+    start_time = end_time - (window * 24 * 60 * 60)
+    query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
+    rows = await conn.fetch(query, wallet, start_time, end_time)
+    swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
-        # Retrieving swap transactions within a specific time window
-        end_time = int(time.time())
-        start_time = end_time - (window * 24 * 60 * 60)
-        query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
-        rows = await conn.fetch(query, wallet, start_time, end_time)
-        swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
-
+    '''
     except Exception as e:
         print(f"Error {e} while running get_wallet_txs operations for wallet {wallet}.")
         return []
     finally:
         await conn.close()
+    '''
 
     return swap_txs_in_window
 
@@ -595,14 +603,16 @@ async def parse_for_swaps(tx_data):
     txs = []
     # Filter to include only swaps
     for tx in tx_data:
-        # If it's an NFT tx Skip it
-        if 'NonFungible' in str(tx) or "TENSOR" in str(tx) or "'ProgrammableNFT'" in str(tx):
+        str_val = str(tx)
+        substrings = ('NonFungible', 'TENSOR', "'ProgrammableNFT'", 'FLiPggWYQyKVTULFWMQjAk26JfK5XRCajfyTmD5weaZ7')
+        if any(sub in str_val for sub in substrings):
             continue
-
+        # pprint(f'\n\n\nValid TX: \n{tx}')
         payload = await parse_tx_get_swaps(tx)
         # Only valid swap txs
         if payload['wallet'] is not None:
             txs.append(payload)
     return txs
 
-asyncio.run(process_wallet('CdK5ZnuC1vRFkUAwhx9m44R2oXAxxgCgZBChzN6m1ZE8', window=7))
+
+asyncio.run(process_wallet('B1hsLhc4iDDCfV6xRpDQPAPFm99a2WBok8qezdUgtFcv'))

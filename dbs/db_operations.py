@@ -99,7 +99,7 @@ async def get_metadata_from_db(token_mint, db_url=pg_db_url):
         if row:
             # Construct the dictionary from the row, asyncpg returns a Record which can be accessed similarly to a dict
             data = {
-                'token_mint': row['mint'],
+                'token_mint': row['token_mint'],
                 'symbol': ['symbol'],
                 'name': ['name'],
                 'img_url': ['img_url'],

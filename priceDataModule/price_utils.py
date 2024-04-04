@@ -1,10 +1,10 @@
 # FILL IN THE DB
 # Takes token mint, start timestamp and end timestamp
 # Get Price Data For that Single Token between the time
-# 5-Minute Timeframe
+# 1-Minute Timeframe
 # It should check if that range is covered and if it is not
 # Fetch prices for that range and add to db
-
+from pprint import pprint
 
 import aiohttp, asyncio, backoff, time, asyncpg
 
@@ -33,7 +33,7 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
            f"=token&type=1m&time_from={start_timestamp}&time_to={end_timestamp}")
     headers = {
         "x-chain": "solana",
-        "X-API-KEY": "your_api_key_here"  # Use your actual API key
+        "X-API-KEY": "813c7191c5f24a519e2325ad1649823d"
     }
     max_retries = 3  # Number of retries
     retries = 0
@@ -59,15 +59,30 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
     try:
         items = price_data.get("data", {}).get("items", [])
+        pprint(items)
+        records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
+
         conn = await asyncpg.connect(dsn=db_url)
         try:
             async with conn.transaction():
-                for item in items:
-                    await conn.execute(
-                        'INSERT INTO token_prices (token_mint, price, timestamp) '
-                        'VALUES ($1, $2, $3) ON CONFLICT (token_mint, timestamp) DO NOTHING',
-                        token_mint, item['value'], item['unixTime']
-                    )
+                await conn.execute('''
+                    CREATE TEMP TABLE tmp_token_prices AS
+                    SELECT * FROM token_prices WITH NO DATA;
+                ''')
+
+                await conn.copy_records_to_table(
+                    'tmp_token_prices',
+                    columns=['token_mint', 'price', 'timestamp'],
+                    records=records_to_insert
+                )
+
+                await conn.execute('''
+                    INSERT INTO token_prices (token_mint, price, timestamp)
+                    SELECT token_mint, price, timestamp FROM tmp_token_prices
+                    ON CONFLICT (token_mint, timestamp) DO NOTHING;
+                ''')
+
+                await conn.execute('DROP TABLE tmp_token_prices;')
         finally:
             await conn.close()
     except Exception as e:
@@ -94,10 +109,10 @@ async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, db_url=
 
             # Adjust the range for fetching data to avoid duplication
             if min_timestamp is None or start_timestamp < min_timestamp:
-                await update_price_data(token_mint, start_timestamp, min_timestamp or start_timestamp, db_url)
+                await update_price_data(token_mint, start_timestamp, min_timestamp)
+
             if maximum_timestamp is None or end_timestamp > (maximum_timestamp + (60 * 60)):
-                await update_price_data(token_mint, (maximum_timestamp or start_timestamp) + (60 * 60), end_timestamp,
-                                        db_url)
+                await update_price_data(token_mint, maximum_timestamp, end_timestamp)
     finally:
         await conn.close()
 
