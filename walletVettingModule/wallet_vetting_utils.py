@@ -364,7 +364,6 @@ async def calculate_pnl(transactions, sol_price):
 
     # Iterate through each transaction
     for txn in transactions:
-        print(txn)
         if txn['out_mint'] == SOL_MINT or txn['in_mint'] == SOL_MINT:
             net_sol += txn['out_amt'] if txn['out_mint'] == SOL_MINT else 0
             net_sol += txn['in_amt'] if txn['in_mint'] == SOL_MINT else 0
@@ -564,6 +563,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
         '''
 
         swap_txs = await parse_for_swaps(tx_data)
+        pprint(swap_txs)
         swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
                             tx['timestamp']) for tx in swap_txs]
 

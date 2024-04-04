@@ -66,18 +66,19 @@ async def add_metadata_to_db(data, db_url=pg_db_url):
         async with conn.transaction():
             # Insert into metadata table
             await conn.execute('''
-                INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter, telegram, other_links,
-                 lp_creation_time, deployer, bundled, airdropped, supply, decimals)
+                INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter, telegram,
+                 other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 ON CONFLICT (token_mint) DO NOTHING
-            ''', (
-                data['token_mint'], data['symbol'], data['name'], data['img_url'], data['starting_mc'], data['starting_liq'],
-                data['twitter'], data['telegram'], data['other_links'], data['lp_creation_time'],
-                data['deployer'], data['bundled'], data['airdropped'], data['supply'], data['decimals']
-            ))
+            ''',
+                               data['token_mint'], data['symbol'], data['name'], data['img_url'], data['starting_mc'],
+                               data['starting_liq'],
+                               data['twitter'], data['telegram'], data['other_links'], data['lp_creation_time'],
+                               data['deployer'], data['bundled'], data['airdropped'], data['supply'], data['decimals']
+                               )
 
     except Exception as e:
-        print(f'An error occurred: {e}')
+        print(f'An error occurred while adding metadata to db: {e}')
         raise e
     finally:
         await conn.close()  # Ensure the connection is closed
