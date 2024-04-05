@@ -398,7 +398,7 @@ async def get_swap_amounts(swap_data, wallet_address):
     for transfer in swap_data:
         mint = transfer['mint']
 
-        await get_metadata(mint)
+        # await get_metadata(mint)
 
         amount = transfer['tokenAmount']
 
