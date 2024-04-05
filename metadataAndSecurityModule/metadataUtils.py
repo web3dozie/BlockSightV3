@@ -3,6 +3,7 @@ import random, re, time, aiohttp, asyncio, ast
 
 from pprint import pprint
 
+from solana.exceptions import SolanaRpcException
 from solana.rpc.api import Client
 from solana.rpc.commitment import Commitment
 from solana.rpc.core import RPCException
@@ -377,6 +378,8 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                     try:
                         block_txs = client.get_block(trying_with, max_supported_transaction_version=0).to_json()
                     except RPCException:
+                        continue
+                    except SolanaRpcException:
                         continue
 
                     block_txs = json.loads(block_txs)['result']['transactions']
