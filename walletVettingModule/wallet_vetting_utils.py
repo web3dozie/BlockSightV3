@@ -292,7 +292,9 @@ async def process_wallet(wallet_address, window=30):
         # pprint(f'PNL DONE: ${pnl}')
 
         thirty_day_buys = filter_for_buys(thirty_day_swaps)
+
         pprint(f'BUY FILTERED')
+
         thirty_day_buys = deduplicate_transactions(thirty_day_buys)
 
         trades = len(thirty_day_buys)
@@ -560,6 +562,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     print('all batches done')
     # GET METADATA IS CALLED ON BAD TOKENS
     # FILTER DOWN BEFORE GATHERING TASKS
+
     '''
     trfsList = [tx["tokenTransfers"] for tx in tx_data]
     mints = {trf["mint"] for trfs in trfsList for trf in trfs}
@@ -615,4 +618,4 @@ async def parse_for_swaps(tx_data):
     return txs
 
 
-asyncio.run(process_wallet('B1hsLhc4iDDCfV6xRpDQPAPFm99a2WBok8qezdUgtFcv'))
+asyncio.run(process_wallet('9TgHi9gnHAtqxbuMpAtBGXKmGrH4v673JzqyT8ey227t'))

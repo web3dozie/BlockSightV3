@@ -59,7 +59,7 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
     try:
         items = price_data.get("data", {}).get("items", [])
-        pprint(items)
+        # pprint(items)
         records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
 
         conn = await asyncpg.connect(dsn=db_url)
