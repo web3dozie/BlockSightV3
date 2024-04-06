@@ -9,7 +9,7 @@ from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
-helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
+helius_api_key = '41a2ecf6-41ff-4ef8-997f-c9b905388725'
 
 
 def is_valid_wallet(string):
@@ -601,17 +601,21 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
 async def parse_for_swaps(tx_data):
     txs = []
-    # Filter to include only swaps
-    for tx in tx_data:
+    async def wrapper(tx):
         str_val = str(tx)
         substrings = ('NonFungible', 'TENSOR', "'ProgrammableNFT'", 'FLiPggWYQyKVTULFWMQjAk26JfK5XRCajfyTmD5weaZ7')
         if any(sub in str_val for sub in substrings):
-            continue
+            return None
         # pprint(f'\n\n\nValid TX: \n{tx}')
         payload = await parse_tx_get_swaps(tx)
         # Only valid swap txs
         if payload['wallet'] is not None:
-            txs.append(payload)
+            return payload
+
+    # Filter to include only swaps
+    tasks = [wrapper(tx) for tx in tx_data]
+    txs = await asyncio.gather(*tasks)
+    txs = [tx for tx in txs if tx]
     return txs
 
 
