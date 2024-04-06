@@ -8,25 +8,30 @@ from pprint import pprint
 
 import aiohttp, asyncio, backoff, time, asyncpg
 
-
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def token_exists(token_mint, db_url=pg_db_url):
+async def token_exists(token_mint, db_url=pg_db_url, conn=None):
     # Connect to the database using the provided URL
-    conn = await asyncpg.connect(dsn=db_url)
+    using_solo_conn = False
+
+    if conn is None:
+        conn = await asyncpg.connect(dsn=db_url)
+        using_solo_conn = True
+
     try:
         # Prepare and execute the query to check for the token's existence
         query = "SELECT EXISTS(SELECT 1 FROM token_prices WHERE token_mint = $1 LIMIT 1)"
         exists = await conn.fetchval(query, token_mint)
         return bool(exists)
     finally:
-        await conn.close()
+        if using_solo_conn:
+            await conn.close()
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=pg_db_url):
+async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=pg_db_url, conn=None):
     # Fetch and insert price data into the database
 
     url = (f"https://public-api.birdeye.so/defi/history_price?address={token_mint}&address_type"
@@ -59,10 +64,15 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
     try:
         items = price_data.get("data", {}).get("items", [])
-        # pprint(items)
+
         records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
 
-        conn = await asyncpg.connect(dsn=db_url)
+        using_conn = False
+
+        if conn is None:
+            conn = await asyncpg.connect(dsn=db_url)
+            using_conn = True
+
         try:
             async with conn.transaction():
                 await conn.execute('''
@@ -84,37 +94,59 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
                 await conn.execute('DROP TABLE tmp_token_prices;')
         finally:
-            await conn.close()
+            if using_conn:
+                await conn.close()
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error from update_price_data: {e}")
         # Optionally, re-raise the exception if you want the calling function to handle it
-        raise
+        raise e
 
 
-async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, db_url=pg_db_url):
+async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=None, db_url=pg_db_url):
     # Define extreme values for the timestamps
     MIN_TIMESTAMP = 0  # e.g., Unix epoch start
     MAX_TIMESTAMP = 1e12  # e.g., a timestamp far in the future
 
-    conn = await asyncpg.connect(dsn=db_url)
-    try:
-        # Check if token_mint exists
-        if not await token_exists(token_mint, db_url):
-            await update_price_data(token_mint, start_timestamp, end_timestamp, db_url)
-        else:
-            # Fetch current min and max timestamps for token_mint
-            result = await conn.fetch("SELECT MIN(timestamp), MAX(timestamp) FROM token_prices WHERE token_mint = $1",
-                                      token_mint)
-            min_timestamp, maximum_timestamp = result[0] if result else (MAX_TIMESTAMP, MIN_TIMESTAMP)
+    if pool is None:
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            # Check if token_mint exists
+            if not await token_exists(token_mint, db_url=db_url):
+                await update_price_data(token_mint, start_timestamp, end_timestamp, db_url)
+            else:
+                # Fetch current min and max timestamps for token_mint
+                result = await conn.fetch("SELECT MIN(timestamp), MAX(timestamp) "
+                                          "FROM token_prices WHERE token_mint = $1",
+                                          token_mint)
+                min_timestamp, maximum_timestamp = result[0] if result else (MAX_TIMESTAMP, MIN_TIMESTAMP)
 
-            # Adjust the range for fetching data to avoid duplication
-            if min_timestamp is None or start_timestamp < min_timestamp:
-                await update_price_data(token_mint, start_timestamp, min_timestamp)
+                # Adjust the range for fetching data to avoid duplication
+                if min_timestamp is None or start_timestamp < min_timestamp:
+                    await update_price_data(token_mint, start_timestamp, min_timestamp)
 
-            if maximum_timestamp is None or end_timestamp > (maximum_timestamp + (60 * 60)):
-                await update_price_data(token_mint, maximum_timestamp, end_timestamp)
-    finally:
-        await conn.close()
+                if maximum_timestamp is None or end_timestamp > (maximum_timestamp + (60 * 60)):
+                    await update_price_data(token_mint, maximum_timestamp, end_timestamp)
+        finally:
+            await conn.close()
+
+    else:
+        async with pool.acquire() as conn:
+            # The rest of your function remains unchanged
+            try:
+                if not await token_exists(token_mint, conn=conn):
+                    await update_price_data(token_mint, start_timestamp, end_timestamp, conn=conn)
+                else:
+                    result = await conn.fetch(
+                        "SELECT MIN(timestamp), MAX(timestamp) FROM token_prices WHERE token_mint = $1", token_mint)
+                    min_timestamp, maximum_timestamp = result[0] if result else (MAX_TIMESTAMP, MIN_TIMESTAMP)
+
+                    if min_timestamp is None or start_timestamp < min_timestamp:
+                        await update_price_data(token_mint, start_timestamp, min_timestamp, conn=conn)
+
+                    if maximum_timestamp is None or end_timestamp > (maximum_timestamp + (60 * 60)):
+                        await update_price_data(token_mint, maximum_timestamp, end_timestamp, conn=conn)
+            except Exception as e:
+                print(f"Error From token_prices_to_db: {e}")
 
 
 # CHECK ATH FROM CALL
@@ -169,41 +201,32 @@ async def max_price_after(token_mint, timestamp, db_url=pg_db_url):
 # else return false
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def is_win_trade(token_mint, timestamp, db_url=pg_db_url):
-    # Assuming token_prices_to_db has been updated to use asyncpg
-    await token_prices_to_db(token_mint, timestamp, int(time.time()), db_url)
+async def is_win_trade(token_mint, timestamp, pool=None, db_url=pg_db_url):
+    # TODO figure out if this is necessary (prices were updated earlier during fetching)
+    # Alternatively, use refactor token_prices_to_db to add stricter checks before trying to do anything (more I/O)
+    # We could also load price data for each token we need beforehand and use whatever is in_memory instead
 
     three_point_five_days_in_seconds = 3.5 * 24 * 60 * 60
-
-    # Connect to the PostgreSQL database using asyncpg
-    conn = await asyncpg.connect(dsn=db_url)
-    try:
-        # Find the closest price at or after the given timestamp
-        query = """
-            SELECT price FROM token_prices
-            WHERE token_mint = $1 AND timestamp >= $2
-            ORDER BY timestamp ASC
-            LIMIT 1
-        """
-        initial_price_data = await conn.fetchval(query, token_mint, timestamp)
-
-        # If no price data found for the timestamp, return False
-        if not initial_price_data:
-            return False
-
-        initial_price = initial_price_data
-
-        # Check for a price that is 2.5x or more within 3.5 days after the timestamp
-        query = """
-            SELECT EXISTS(
-                SELECT 1 FROM token_prices
-                WHERE token_mint = $1 AND timestamp BETWEEN $2 AND $3 AND price >= $4 * 2.5
+    async with pool.acquire() as conn:
+        try:
+            # Find the closest price at or after the given timestamp
+            query = """
+            WITH initial_price AS (
+                SELECT price, timestamp FROM token_prices
+                WHERE token_mint = $1 AND timestamp >= $2
+                ORDER BY timestamp ASC
+                LIMIT 1
             )
-        """
-        result = await conn.fetchval(query, token_mint, timestamp, timestamp + three_point_five_days_in_seconds,
-                                     initial_price)
+            SELECT EXISTS(
+                SELECT 1 FROM token_prices, initial_price
+                WHERE token_prices.token_mint = $1 
+                AND token_prices.timestamp BETWEEN initial_price.timestamp AND initial_price.timestamp + $3 
+                AND token_prices.price >= initial_price.price * 2.5
+            )
+            """
 
-        return bool(result)
-    finally:
-        # Ensure the connection is closed after operation
-        await conn.close()
+            result = await conn.fetchval(query, token_mint, timestamp, three_point_five_days_in_seconds)
+
+            return bool(result)
+        except Exception as e:
+            print(f'Error occurred in is_win_trade: {e}')
