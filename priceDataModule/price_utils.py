@@ -59,7 +59,7 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
     try:
         items = price_data.get("data", {}).get("items", [])
-        pprint(items)
+        # pprint(items)
         records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
 
         conn = await asyncpg.connect(dsn=db_url)
@@ -167,6 +167,7 @@ async def max_price_after(token_mint, timestamp, db_url=pg_db_url):
 # check if there is a price within 3.5 days after the timestamp that is 3x or more the initial price
 # if there is, return True
 # else return false
+
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
 async def is_win_trade(token_mint, timestamp, db_url=pg_db_url):
     # Assuming token_prices_to_db has been updated to use asyncpg
