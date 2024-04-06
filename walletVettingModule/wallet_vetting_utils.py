@@ -281,9 +281,9 @@ async def get_wallet_data(wallet_address, db_url=pg_db_url):
 async def process_wallet(wallet_address, window=30):
     if await is_wallet_outdated(wallet_address):
         # Get last 30 days of SPL Buy TXs
+        print('FETCHING TXS')
         thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
-
-        # pprint(thirty_day_swaps)
+        print('FETCHED TXS')
 
         sol_price = await get_sol_price()
 
@@ -292,7 +292,9 @@ async def process_wallet(wallet_address, window=30):
         # pprint(f'PNL DONE: ${pnl}')
 
         thirty_day_buys = filter_for_buys(thirty_day_swaps)
-        pprint(f'BUY FILTERED')
+
+        print(f'BUYS FILTERED')
+
         thirty_day_buys = deduplicate_transactions(thirty_day_buys)
 
         trades = len(thirty_day_buys)
@@ -302,14 +304,24 @@ async def process_wallet(wallet_address, window=30):
 
         # pprint(f'TMT: \n{token_mints_and_timestamps}')
 
+        # TODO uses too many connections, need to implement pooling
+        pool = await asyncpg.create_pool(dsn=pg_db_url)
+
+        print("POOL CREATED")
+
         # fetch token info up front and at once
-        tasks = [token_prices_to_db(tmt[0], tmt[1], int(time.time())) for tmt in token_mints_and_timestamps]
+        tasks = [token_prices_to_db(tmt[0], tmt[1], int(time.time()), pool=pool) for tmt in token_mints_and_timestamps]
         await asyncio.gather(*tasks)
+
+        await pool.close()
+
+        print('PRICES_UPDATED')
 
         wins = 0
         size = 0
         weth_price = await get_weth_price()
 
+        # TODO MAJOR BOTTLENECK
         for trade in thirty_day_buys:
             in_mint = trade['in_mint']
             in_amt = trade['in_amt']
@@ -475,7 +487,7 @@ async def parse_tx_get_swaps(tx: dict):
 # DONE
 # "window should be 1, 7, or 30. represents no. of days to fetch txs for"
 
-async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=31):
+async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=30):
     last_db_tx_timestamp = 0
     conn = await asyncpg.connect(dsn=db_url)
     # try:
@@ -514,9 +526,6 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
         count += 1
         if last_tx_sig:  # Append 'before' parameter only for subsequent requests
             url += f'&before={last_tx_sig}'
-
-        if count > 35:
-            return tx_data
 
         retries = 0
         while retries < max_retries:
@@ -557,7 +566,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     # slow version of the comprehension
     # trfsList = [tx["tokenTransfers"] for tx in thirty_day_txs if (tx['feePayer'] !=
     # 'DCAKxn5PFNN1mBREPWGdk1RXg5aVH9rPErLfBFEi2Emb' and tx['source'] not in ("JUPITER", "UNKNOWN"))]
-    print('all batches done')
+
     # GET METADATA IS CALLED ON BAD TOKENS
     # FILTER DOWN BEFORE GATHERING TASKS
     '''
@@ -568,8 +577,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     '''
 
     swap_txs = await parse_for_swaps(tx_data)
-    print('SWAPS DONE')
-    pprint(swap_txs)
+
     swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
                         tx['timestamp']) for tx in swap_txs]
 
@@ -615,4 +623,4 @@ async def parse_for_swaps(tx_data):
     return txs
 
 
-asyncio.run(process_wallet('B1hsLhc4iDDCfV6xRpDQPAPFm99a2WBok8qezdUgtFcv'))
+asyncio.run(process_wallet('4EsY8HQB4Ak65diFrSHjwWhKSGC8sKmnzyusM993gk2w'))
