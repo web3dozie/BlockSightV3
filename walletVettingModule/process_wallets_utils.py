@@ -126,6 +126,23 @@ def read_csv_wallets(file_path):
             wallets.append(row['Wallet'])
     return wallets
 
+def remove_wallet_from_csv(path_to_csv, wallet):
+    """
+    Removes specified wallets from the CSV.
+
+    Args:
+    path_to_csv (str): The path to the CSV file.
+
+    wallets (list): wallet to be removed
+
+
+    Returns:
+    Nothing. If the specified wallet isn't in the CSV, fail silently 
+    """
+    df = pd.read_csv(path_to_csv)
+    indices_to_remove = df.index[df.iloc[:, 0] == wallet].tolist() #should only be one entry
+    df = df.drop(indices_to_remove)
+    df.to_csv(path_to_csv, index=False)
 
 def wallet_processor(folder_path: str):
     handle_zips(folder_path)
