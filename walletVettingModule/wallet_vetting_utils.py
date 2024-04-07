@@ -633,5 +633,5 @@ async def parse_for_swaps(tx_data):
     txs = [tx for tx in txs if tx]
     return txs
 
-
-asyncio.run(process_wallet('FC3nyVqdufVfrgXiRJEqgST1JdJSEBEz6a9KoBfFP7c4'))
+if __name__ == "main":
+    asyncio.run(process_wallet('FC3nyVqdufVfrgXiRJEqgST1JdJSEBEz6a9KoBfFP7c4'))
