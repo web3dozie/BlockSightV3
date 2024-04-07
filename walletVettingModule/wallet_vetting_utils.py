@@ -585,31 +585,30 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
     swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
                         tx['timestamp']) for tx in swap_txs]
-
+    try:
     # Inserting new swap transactions into the database
-    if swap_txs_tuples:  # TODO I/O -> Check later for improvable parts.
-        await conn.executemany(
-            "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (txid) DO NOTHING",
-            swap_txs_tuples
-        )
+        if swap_txs_tuples:  # TODO I/O -> Check later for improvable parts.
+            # await conn.executemany(
+            #     "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
+            #     "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (txid) DO NOTHING",
+            #     swap_txs_tuples
+            # )
 
-    # Retrieving swap transactions within a specific time window
-    end_time = int(time.time())
-    start_time = end_time - (window * 24 * 60 * 60)
+            await conn.copy_records_to_table("txs", records=swap_txs_tuples)
 
-    query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
+        # Retrieving swap transactions within a specific time window
+        end_time = int(time.time())
+        start_time = end_time - (window * 24 * 60 * 60)
 
-    rows = await conn.fetch(query, wallet, start_time, end_time)  # TODO -> Some I/O here check later for improvements
-    swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
+        query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
 
-    '''
+        rows = await conn.fetch(query, wallet, start_time, end_time)  # TODO -> Some I/O here check later for improvements
+        swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
+
+    
     except Exception as e:
-        print(f"Error {e} while running get_wallet_txs operations for wallet {wallet}.")
+        print(f"Error {e} while running db insertion/retrieval operations for wallet {wallet}.")
         return []
-    finally:
-        await conn.close()
-    '''
 
     return swap_txs_in_window
 

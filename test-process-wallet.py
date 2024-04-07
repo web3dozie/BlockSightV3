@@ -2,7 +2,7 @@ from walletVettingModule.wallet_vetting_utils import process_wallet
 import asyncio, cProfile
 
 async def main():
-  print(await process_wallet("27bbscgShL5QCa2dZ4oKcaaSUFLqww3tfph6iYeN4Wh5"))
+  print(await process_wallet("CnsMpVXrzP3V6eCnE3hojnrMW9x6oWwGBWJ1sN5qdWkn"))
 
 def wrapper():
   asyncio.run(main())
