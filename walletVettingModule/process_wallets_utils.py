@@ -1,6 +1,7 @@
 import os, csv, glob, zipfile
 import pandas as pd
 from collections import Counter
+import backoff
 
 
 def process_zip(zip_file, path_to_folder):
@@ -126,6 +127,7 @@ def read_csv_wallets(file_path):
             wallets.append(row['Wallet'])
     return wallets
 
+@backoff.on_exception(backoff.expo, Exception, max_tries=5)
 def remove_wallet_from_csv(path_to_csv, wallet):
     """
     Removes specified wallets from the CSV.
