@@ -62,6 +62,9 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
             # If successful, exit the loop
             break
 
+    if price_data is None:
+        return
+    
     try:
         items = price_data.get("data", {}).get("items", [])
 
@@ -104,63 +107,40 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
 async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=None, db_url=pg_db_url):
     # Define extreme values for the timestamps
-    MIN_TIMESTAMP = 0  # e.g., Unix epoch start
-    MAX_TIMESTAMP = 1e12  # e.g., a timestamp far in the future
+    MIN_TIMESTAMP = int(time.time()) - (30 *24 * 60 * 60) - (60*60) # 29 days, 23 hours ago
+    MAX_TIMESTAMP = int(time.time())  # right now
 
     if pool is None:
         conn = await asyncpg.connect(dsn=db_url)
-        try:
-            # Check if the token exists and fetch min/max timestamps in a single query
-            result = await conn.fetchrow(
-                "SELECT MIN(timestamp) AS min_timestamp, MAX(timestamp) AS max_timestamp "
-                "FROM token_prices WHERE token_mint = $1",
-                token_mint
-            )
-            min_timestamp, max_timestamp = result if result else (None, None)
-
-            if min_timestamp is None:  # Implies token does not exist
-                await update_price_data(token_mint, start_timestamp, end_timestamp, conn=conn)
-            else:
-                # Initialize min/max_timestamp if they are None
-                min_timestamp = min_timestamp or MAX_TIMESTAMP
-                max_timestamp = max_timestamp or MIN_TIMESTAMP
-
-                # Adjust the range for fetching data to avoid duplication
-                if start_timestamp < min_timestamp:
-                    await update_price_data(token_mint, start_timestamp, min_timestamp, conn=conn)
-                if end_timestamp > (max_timestamp + (3 * 60 * 60)):  # Adding a buffer of 3 hours
-                    await update_price_data(token_mint, max_timestamp, end_timestamp, conn=conn)
-        finally:
-            await conn.close()
-
     else:
-        async with pool.acquire() as conn:
-            # The rest of your function remains unchanged
-            try:
-                # Check if the token exists and fetch min/max timestamps in a single query
-                result = await conn.fetchrow(
-                    "SELECT MIN(timestamp) AS min_timestamp, MAX(timestamp) AS max_timestamp "
-                    "FROM token_prices WHERE token_mint = $1",
-                    token_mint
-                )
-                min_timestamp, max_timestamp = result if result else (None, None)
+        conn = pool.acquire()
+        
+    try:
+        # Check if the token exists and fetch min/max timestamps in a single query
+        result = await conn.fetchrow(
+            "SELECT MIN(timestamp) AS min_timestamp, MAX(timestamp) AS max_timestamp "
+            "FROM token_prices WHERE token_mint = $1",
+            token_mint
+        )
+        min_timestamp, max_timestamp = result if result else (None, None)
 
-                if min_timestamp is None:  # Implies token does not exist
-                    await update_price_data(token_mint, start_timestamp, end_timestamp, conn=conn)
-                else:
-                    # Initialize min/max_timestamp if they are None
-                    min_timestamp = min_timestamp or MAX_TIMESTAMP
-                    max_timestamp = max_timestamp or MIN_TIMESTAMP
+        if min_timestamp is None:  # Implies token does not exist
+            await update_price_data(token_mint, start_timestamp, end_timestamp, conn=conn)
+        else:
+            # Initialize min/max_timestamp if they are None
+            min_timestamp = min_timestamp or MAX_TIMESTAMP
+            max_timestamp = max_timestamp or MIN_TIMESTAMP
 
-                    # Adjust the range for fetching data to avoid duplication
-                    if start_timestamp < min_timestamp:
-                        await update_price_data(token_mint, start_timestamp, min_timestamp, conn=conn)
-                    if end_timestamp > (max_timestamp + (3 * 60 * 60)):  # Adding a buffer of 3 hours
-                        await update_price_data(token_mint, max_timestamp, end_timestamp, conn=conn)
+            # Adjust the range for fetching data to avoid duplication
+            if start_timestamp < min_timestamp:
+                await update_price_data(token_mint, start_timestamp, min_timestamp, conn=conn)
+            if end_timestamp > (max_timestamp + (3 * 60 * 60)):  # Adding a buffer of 3 hours
+                await update_price_data(token_mint, max_timestamp, end_timestamp, conn=conn)
+    except Exception as e:
+        print(f"Error From token_prices_to_db: {e}")
 
-            except Exception as e:
-                print(f"Error From token_prices_to_db: {e}")
-
+    finally:
+        await conn.close()
 
 # CHECK ATH FROM CALL
 # Takes a timestamp, token mint, price
