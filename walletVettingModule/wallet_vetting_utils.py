@@ -278,11 +278,11 @@ async def get_wallet_data(wallet_address, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def process_wallet(wallet_address, window=30):
-    if await is_wallet_outdated(wallet_address):
+async def process_wallet(wallet_address, window=30, db_url=pg_db_url):
+    if await is_wallet_outdated(wallet_address, db_url=db_url):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
-        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
+        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, db_url=db_url)
         print('FETCHED TXS')
 
         sol_price = await get_sol_price()
@@ -369,7 +369,7 @@ async def process_wallet(wallet_address, window=30):
         pprint(wallet_summary)
         print('\n\n')
 
-        await insert_wallet_into_db(wallet_summary)
+        await insert_wallet_into_db(wallet_summary, db_url=db_url)
         return wallet_summary
 
     else:
@@ -565,6 +565,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
+                await conn.close()
                 return []
 
     # slow version of the comprehension
@@ -580,10 +581,11 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     tasks = [get_metadata(mint) for mint in mints]
     await asyncio.gather(*tasks)
     '''
+    swap_txs_tuples = None
+    if len(tx_data) > 0:
+        swap_txs = await parse_for_swaps(tx_data)  # No I/O in here
 
-    swap_txs = await parse_for_swaps(tx_data)  # No I/O in here
-
-    swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
+        swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
                         tx['timestamp']) for tx in swap_txs]
     try:
     # Inserting new swap transactions into the database
@@ -608,8 +610,10 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     
     except Exception as e:
         print(f"Error {e} while running db insertion/retrieval operations for wallet {wallet}.")
+        await conn.close()
         return []
 
+    await conn.close()
     return swap_txs_in_window
 
 
