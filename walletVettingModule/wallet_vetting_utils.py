@@ -1,4 +1,4 @@
-import time, aiohttp, asyncio, base58, asyncpg
+import time, aiohttp, asyncio, base58, asyncpg, random
 
 from pprint import pprint
 
@@ -283,8 +283,9 @@ async def process_wallet(wallet_address, window=30, db_url=pg_db_url):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
         thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, db_url=db_url)
+        if len(thirty_day_swaps) == 0:
+            raise Exception("Unable to fetch txs")
         print('FETCHED TXS')
-
         sol_price = await get_sol_price()
 
         pnl = round(await calculate_pnl(thirty_day_swaps, sol_price), 2)
@@ -534,6 +535,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
         retries = 0
         while retries < max_retries:
             try:
+                await asyncio.sleep(random.randint(3,20)) # trying to avoid 429's
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as response:
                         if response.status == 200:
@@ -545,7 +547,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
                             for tx in tx_data_batch:
 
-                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp:
+                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
                                     continue
                                 tx_data.append(tx)
 
@@ -560,8 +562,8 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
             except Exception as e:
                 retries += 1
-                print(f"Error: {e}, retrying in 5 seconds...")
-                await asyncio.sleep(5)
+                print(f"Error: {e}, retrying in {retries * 5} seconds...")
+                await asyncio.sleep(retries * 5)
 
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
@@ -587,6 +589,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
         swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
                         tx['timestamp']) for tx in swap_txs]
+        swap_txs_tuples = set(swap_txs_tuples)
     try:
     # Inserting new swap transactions into the database
         if swap_txs_tuples:  # TODO I/O -> Check later for improvable parts.

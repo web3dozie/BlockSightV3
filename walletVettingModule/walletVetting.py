@@ -13,11 +13,12 @@ async def main():
     wallet_list = read_csv_wallets('./wallet_counts.csv')
 
     # Create a semaphore to limit concurrent tasks to 10
-    semaphore = asyncio.Semaphore(5)
+    semaphore = asyncio.Semaphore(10)
 
     async def process_wallet_with_semaphore(wallet):
         async with semaphore:
             retv = await process_wallet(wallet)
+            print("processed wallet", retv)
             if retv is not None:
                 remove_wallet_from_csv('./wallet_counts.csv', wallet)
 

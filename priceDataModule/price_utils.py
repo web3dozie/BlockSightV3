@@ -6,7 +6,7 @@
 # Fetch prices for that range and add to db
 from pprint import pprint
 
-import aiohttp, asyncio, backoff, time, asyncpg
+import aiohttp, asyncio, backoff, time, asyncpg, random
 
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
 
@@ -46,6 +46,7 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
     while retries < max_retries:
         try:
+            await asyncio.sleep(random.randint(2, 10)) # trying to avoid 429's
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
