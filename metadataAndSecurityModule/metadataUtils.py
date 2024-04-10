@@ -3,6 +3,7 @@ import random, re, time, aiohttp, asyncio, ast
 
 from pprint import pprint
 
+from solana.exceptions import SolanaRpcException
 from solana.rpc.api import Client
 from solana.rpc.commitment import Commitment
 from solana.rpc.core import RPCException
@@ -200,15 +201,21 @@ async def get_target_slot_timestamp(slot_number):
 
     extended_ranges = [[1, -1], [2, -2], [3, -3], [4, -4], [5, -5], [6, -6], [7, -7], [8, -8], [9, -9], [10, -10]]
 
-    # TODO Potential Failure Point
-    for delta_range in [initial_range] + extended_ranges:
-        for delta in delta_range:
-            try:
-                slot_timestamp = client.get_block_time(slot_number + delta).value
-                return slot_timestamp  # Return on the first successful fetch
-            except RPCException:
-                await asyncio.sleep(0.5)
-                continue  # Try the next delta in the range
+    retries = 3
+    for attempt in range(retries):
+        for delta_range in [initial_range] + extended_ranges:
+            for delta in delta_range:
+                try:
+                    slot_timestamp = client.get_block_time(slot_number + delta).value
+                    return slot_timestamp  # Return on the first successful fetch
+                except RPCException:
+                    await asyncio.sleep(0.5)  # Wait before trying the next delta
+                    continue  # Proceed to try with the next delta in the range
+        if attempt < retries - 1:  # If not the last attempt, reset to try the entire range again
+            print(f"Attempt {attempt + 1} failed, retrying entire range after a short wait...")
+            await asyncio.sleep(0.5)  # Wait before retrying the entire range
+        else:
+            raise Exception("Failed to fetch slot timestamp after multiple retries")
 
     # If the function hasn't returned by this point, no valid timestamp was found
     raise ValueError(f"No valid timestamp found near slot number {slot_number}")
@@ -371,6 +378,8 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                     try:
                         block_txs = client.get_block(trying_with, max_supported_transaction_version=0).to_json()
                     except RPCException:
+                        continue
+                    except SolanaRpcException:
                         continue
 
                     block_txs = json.loads(block_txs)['result']['transactions']
