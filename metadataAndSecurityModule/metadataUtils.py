@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db
 
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
+rpc_url = 'https://multi-still-haze.solana-mainnet.quiknode.pro/31a3baf7ec201b729d156f47b25ca0cd7390c256/'
 
 
 async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'):
@@ -180,7 +181,7 @@ async def get_dxs_data(mint_token):
 async def get_current_slot_timestamp():
     # Returns the current slot's number and timestamp
 
-    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    cluster_url = rpc_url
     client = Client(cluster_url)
     try:
         slot_number = client.get_block_height(commitment=Commitment('confirmed')).value
@@ -195,7 +196,7 @@ async def get_current_slot_timestamp():
 
 
 async def get_target_slot_timestamp(slot_number):
-    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    cluster_url = rpc_url
     client = Client(cluster_url)
     initial_range = [0]  # Starting with the current slot
 
@@ -204,13 +205,16 @@ async def get_target_slot_timestamp(slot_number):
     retries = 3
     for attempt in range(retries):
         for delta_range in [initial_range] + extended_ranges:
-            for delta in delta_range:
-                try:
-                    slot_timestamp = client.get_block_time(slot_number + delta).value
-                    return slot_timestamp  # Return on the first successful fetch
-                except RPCException:
-                    await asyncio.sleep(0.5)  # Wait before trying the next delta
-                    continue  # Proceed to try with the next delta in the range
+            try:
+                for delta in delta_range:
+                    try:
+                        slot_timestamp = client.get_block_time(slot_number + delta).value
+                        return slot_timestamp  # Return on the first successful fetch
+                    except RPCException:
+                        await asyncio.sleep(0.5)  # Wait before trying the next delta
+                        continue  # Proceed to try with the next delta in the range
+            except SolanaRpcException:
+                raise Exception("Failed to fetch slot timestamp after multiple retries")
         if attempt < retries - 1:  # If not the last attempt, reset to try the entire range again
             print(f"Attempt {attempt + 1} failed, retrying entire range after a short wait...")
             await asyncio.sleep(0.5)  # Wait before retrying the entire range
@@ -238,6 +242,9 @@ async def deep_deploy_tx_search(target_timestamp):
         mid = (low + high) // 2
         mid_timestamp = await get_target_slot_timestamp(mid)
 
+        if mid_timestamp is None:
+            return
+
         if mid_timestamp < target_timestamp:
             # This could be a valid slot, save it and try to find a closer one
             last_valid_mid = mid
@@ -259,13 +266,28 @@ async def parse_tx_list(tx_list, api_key=helius_api_key):
         return []
 
     url = f"https://api.helius.xyz/v0/transactions/?api-key={api_key}"
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json={"transactions": tx_list}) as response:
-            data = await response.json()
-            return data
+    # Parameters for retry logic
+    max_attempts = 5
+    attempt = 0
+
+    while attempt < max_attempts:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json={"transactions": tx_list}) as response:
+                    data = await response.json()
+                    return data
+
+        except aiohttp.client_exceptions.ServerDisconnectedError as e:
+            print(f"Server disconnected. Retrying... ({attempt + 1}/{max_attempts})")
+            attempt += 1
+            if attempt < max_attempts:
+                # Wait a bit before retrying to give the server some time (adjust as needed)
+                await asyncio.sleep(0.5)
+            else:
+                raise e
 
 
-async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
+async def get_data_from_helius(token_mint, api_key):
     url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
     headers = {
         'Content-Type': 'application/json',
@@ -292,11 +314,16 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                 print(f"Failed to fetch metadata for {token_mint} (helius). Status code:", response.status)
                 result = {}
 
-    mint = token_mint
+    return result
+
+
+async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
+    result = await get_data_from_helius(token_mint, api_key)
+
     try:
         symbol = result['content']['metadata']['symbol']
     except KeyError:
-        print(f'Mint has an error could not retrieve metadata: {mint}')
+        print(f'Mint has an error could not retrieve metadata: {token_mint}')
         return
 
     name = result['content']['metadata']['name']
@@ -340,7 +367,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
             relevant_deploy = []
 
             for tx in deploy_tx:
-                if mint in str(tx):
+                if token_mint in str(tx):
                     relevant_deploy.append(tx)
 
             deploy_tx = relevant_deploy
@@ -358,20 +385,42 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
             if attempts < max_retries:
                 await asyncio.sleep(1)  # Wait for 1 second before retrying
             else:
-                print(f'\n\nStarting Deep Search for {mint}')
+                print(f'\n\nStarting Deep Search for {token_mint}')
 
                 # After max retries, handle with the except logic
 
-                dxs_data = await get_dxs_data(mint)
+                dxs_data = await get_dxs_data(token_mint)
                 lp_creation_time = dxs_data['lp_creation_time']
                 lp_address = dxs_data['pool_address']
 
-                deploy_slot = await deep_deploy_tx_search(lp_creation_time - 1)
+                try:
+                    deploy_slot = await deep_deploy_tx_search(lp_creation_time - 1)
+                except TypeError:
+                    return {
+                        'token_mint': token_mint,
+                        'symbol': symbol,
+                        'name': name,
+                        'img_url': img_url,
+                        'starting_mc': None,
+                        'starting_liq': None,
+                        'twitter': None,
+                        'telegram': None,
+                        'other_links': None,
+                        'lp_creation_time': None,
+                        'deployer': deployer,
+                        'bundled': None,
+                        'airdropped': None,
+                        'supply': supply,
+                        'decimals': decimals
+                    }
 
                 slot_txs_plus_10 = []
                 for tries in range(0, 10):
-                    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+                    cluster_url = rpc_url
                     client = Client(cluster_url)
+
+                    if deploy_slot is None:
+                        return
 
                     trying_with = deploy_slot + tries
 
@@ -432,7 +481,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
 
     if not deploy_tx:
         return {
-            'token_mint': mint,
+            'token_mint': token_mint,
             'symbol': symbol,
             'name': name,
             'img_url': img_url,
@@ -452,14 +501,14 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
     slot = deploy_tx[0]['slot']
     deploy_sig = deploy_tx[0]['signature']
 
-    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    cluster_url = rpc_url
     client = Client(cluster_url)
     block_txs = client.get_block(slot, max_supported_transaction_version=0).to_json()
     block_txs = json.loads(block_txs)['result']['transactions']
 
     relevant_txs = []
     for tx in block_txs:
-        if mint in str(tx):
+        if token_mint in str(tx):
             relevant_txs.extend(tx['transaction']['signatures'])
 
     relevant_txs.remove(deploy_sig)
@@ -483,7 +532,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
             # Iterate through each dictionary in the 'token_transfers' list
             for transfer in item['tokenTransfers']:
                 # Check if this dictionary's 'mint' matches our variable and add 'token_amount' to total
-                if transfer['mint'] == mint:
+                if transfer['mint'] == token_mint:
                     total_bundled += transfer['tokenAmount']
 
     bundled = round((total_bundled / supply * 100), 2)
@@ -506,7 +555,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                 # Check if this dictionary's 'mint' matches our variable and add 'token_amount' to total
                 if transfer['mint'] == 'So11111111111111111111111111111111111111112':
                     starting_sol += transfer['tokenAmount']
-                if transfer['mint'] == mint:
+                if transfer['mint'] == token_mint:
                     starting_tokens += transfer['tokenAmount']
 
     starting_liq = round((starting_sol * sol_price * 2), 2)
@@ -517,6 +566,8 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
 
     if deployer in ['TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM']:
         airdropped = 0.00
+    elif airdropped >= 100 or airdropped <= -100:
+        airdropped = None
 
     print(f'Airdropped: {airdropped}%')
 
@@ -530,7 +581,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
         other_links = [None]
 
     payload = {
-        'token_mint': mint,
+        'token_mint': token_mint,
         'symbol': symbol,
         'name': name,
         'img_url': img_url,
@@ -549,29 +600,32 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
     return payload
 
 
-async def get_metadata(token_mint):
+async def get_metadata(token_mint, regular_use: bool = True, pool=None):
     # if token is not in DB already, fetch metadata with helius API and add it to db[else get it from the db]
 
-    if not await mint_exists(token_mint):
+    if not await mint_exists(token_mint, pool=pool):  # TODO -> I/O that we can potentially remove
         # print(token_mint)
         metadata = await retrieve_metadata(token_mint)
 
         if not metadata:
+            # TODO -> add a record that logs the bad token so that we can early exit if we see it again.
             return
 
         # Add metadata to db
         try:
-            await add_metadata_to_db(metadata)
+            await add_metadata_to_db(metadata, pool=pool)  # TODO -> I/O that we can optimize
         except Exception as metadata_error:
             pprint('METADATA ERROR')
             pprint(metadata_error)
             raise metadata_error
 
     else:
-        # retrieve metadata from db
-        metadata = await get_metadata_from_db(token_mint)
-
-    return metadata
+        if regular_use:
+            # retrieve metadata from db
+            metadata = await get_metadata_from_db(token_mint)  # TODO I/O that we can skip/optimise
+            return metadata
+        else:
+            return None
 
 
 async def get_dexscreener_data(token_mint):
@@ -731,7 +785,7 @@ async def is_older_than(token_mint, minutes=150):
 
 async def get_num_holders(mint='', helius_key=helius_api_key):
     url = f'https://mainnet.helius-rpc.com/?api-key={helius_key}'
-    url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    url = rpc_url
     async with aiohttp.ClientSession() as session:
         page = 1
         all_owners = set()
@@ -776,7 +830,7 @@ async def get_top_holder_percentages(mint: str = "", helius_key: str = helius_ap
 
     # Initialize the Solana RPC client
     cluster_url = f'https://mainnet.helius-rpc.com/?api-key={helius_key}'
-    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    cluster_url = rpc_url
 
     client = Client(cluster_url)
 

@@ -9,7 +9,8 @@ from metadataAndSecurityModule.metadataUtils import get_wallet_txs
 from walletVettingModule.wallet_vetting_utils import get_sol_price
 
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
-
+rpc_url = 'https://multi-still-haze.solana-mainnet.quiknode.pro/31a3baf7ec201b729d156f47b25ca0cd7390c256/'
+# api_key = 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
 
 async def get_dxs_data(mint_token):
     dxs_api_url = f'https://api.dexscreener.com/latest/dex/tokens/{mint_token}'
@@ -50,7 +51,7 @@ async def get_dxs_data(mint_token):
 async def get_current_slot_timestamp():
     # Returns the current slot's number and timestamp
 
-    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    cluster_url = rpc_url
     client = Client(cluster_url)
     try:
         slot_number = client.get_block_height(commitment=Commitment('confirmed')).value
@@ -65,7 +66,7 @@ async def get_current_slot_timestamp():
 
 
 async def get_target_slot_timestamp(slot_number):
-    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    cluster_url = rpc_url
     client = Client(cluster_url)
     initial_range = [0]  # Starting with the current slot
     extended_ranges = [[1, -1], [2, -2], [3, -3]]  # Expanding the range progressively
@@ -252,7 +253,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
 
                 slot_txs_plus_10 = []
                 for tries in range(0, 10):
-                    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+                    cluster_url = rpc_url
                     client = Client(cluster_url)
 
                     trying_with = deploy_slot + tries
@@ -306,7 +307,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
     slot = deploy_tx[0]['slot']
     deploy_sig = deploy_tx[0]['signature']
 
-    cluster_url = 'https://lia-gf6xva-fast-mainnet.helius-rpc.com'
+    cluster_url = rpc_url
     client = Client(cluster_url)
     block_txs = client.get_block(slot, max_supported_transaction_version=0).to_json()
     block_txs = json.loads(block_txs)['result']['transactions']
