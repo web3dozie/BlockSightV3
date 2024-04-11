@@ -278,11 +278,11 @@ async def get_wallet_data(wallet_address, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def process_wallet(wallet_address, window=30, db_url=pg_db_url):
+async def process_wallet(wallet_address, window=30, end_time:int=None, db_url=pg_db_url):
     if await is_wallet_outdated(wallet_address, db_url=db_url):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
-        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, db_url=db_url)
+        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, end_time=end_time, db_url=db_url)
         if len(thirty_day_swaps) == 0:
             raise Exception("Unable to fetch txs")
         print('FETCHED TXS')
@@ -493,9 +493,11 @@ async def parse_tx_get_swaps(tx: dict):
 
 # DONE
 # "window should be 1, 7, or 30. represents no. of days to fetch txs for"
-
-async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=30):
+# the end_time parameter specifies the end of the window 
+async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_time:int=None, db_url=pg_db_url, window=30):
     conn = await asyncpg.connect(dsn=db_url)
+    if end_time is None:
+        end_time = int(time.time())
 
     # Fetching the latest transaction timestamp for the wallet
     query = "SELECT MAX(timestamp) FROM txs WHERE wallet = $1"
@@ -508,7 +510,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     if not last_db_tx_timestamp:
         time_since_last_update = 31 * 24 * 60 * 60
     else:
-        time_since_last_update = int(time.time()) - last_db_tx_timestamp
+        time_since_last_update = end_time - last_db_tx_timestamp
 
     if time_since_last_update > 24 * 60 * 60:  # seconds in one day
         days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
@@ -602,7 +604,6 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
             await conn.copy_records_to_table("txs", records=swap_txs_tuples)
 
         # Retrieving swap transactions within a specific time window
-        end_time = int(time.time())
         start_time = end_time - (window * 24 * 60 * 60)
 
         query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
