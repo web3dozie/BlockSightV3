@@ -12,10 +12,19 @@ pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 
 
-def is_valid_wallet(string):
+def is_valid_wallet(wallet_address: str) -> bool:
+    """
+    Check if the given wallet address is valid by attempting to decode it and create a VerifyKey object.
+
+    Args:
+        wallet_address (str): The wallet address to validate.
+
+    Returns:
+        bool: True if the wallet address is valid, False otherwise.
+    """
     try:
         # Decode the string from to bytes
-        point_bytes = base58.b58decode(string)
+        point_bytes = base58.b58decode(wallet_address)
 
         # Attempt to create a VerifyKey object, which will validate the point
         VerifyKey(point_bytes)
@@ -26,9 +35,18 @@ def is_valid_wallet(string):
         return False
 
 
-def deduplicate_transactions(txs):
+def deduplicate_transactions(transactions: list) -> list:
+    """
+    Deduplicate transactions by sorting them and ensuring that each out_mint appears only once within a 15-minute window.
+
+    Args:
+        transactions (list): A list of transaction dictionaries to deduplicate.
+
+    Returns:
+        list: A deduplicated list of transaction dictionaries.
+    """
     # Sort transactions by 'out_mint' and then by 'timestamp'
-    sorted_txs = sorted(txs, key=lambda x: (x['out_mint'], x['timestamp']))
+    sorted_txs = sorted(transactions, key=lambda x: (x['out_mint'], x['timestamp']))
 
     # Function to deduplicate transactions
     deduped = []
@@ -49,7 +67,19 @@ def deduplicate_transactions(txs):
     return deduped
 
 
-def determine_grade(trades, win_rate, avg_size, pnl):
+def determine_grade(trades: int, win_rate: float, avg_size: float, pnl: float) -> dict:
+    """
+    Determine the grade of a wallet based on its trading performance metrics.
+
+    Args:
+        trades (int): The number of trades.
+        win_rate (float): The win rate percentage.
+        avg_size (float): The average size of trades.
+        pnl (float): The profit and loss.
+
+    Returns:
+        dict: A dictionary containing the overall grade and individual grades for each metric.
+    """
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
         if value >= thresholds['S']:
@@ -137,7 +167,16 @@ def determine_grade(trades, win_rate, avg_size, pnl):
     }
 
 
-async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'):
+async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111111112') -> float:
+    """
+    Fetch the current price of SOL from the Dexscreener API.
+
+    Args:
+        token_mint (str, optional): The mint address of the SOL token. Defaults to the official SOL mint address.
+
+    Returns:
+        float: The current price of SOL in USD.
+    """
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
     max_retries = 3  # Number of retries
     retries = 0
@@ -169,7 +208,16 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
         return 200
 
 
-async def get_weth_price(token_mint='7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'):
+async def get_weth_price(token_mint: str = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs') -> float:
+    """
+    Fetch the current price of WETH from the Dexscreener API.
+
+    Args:
+        token_mint (str, optional): The mint address of the WETH token. Defaults to the official WETH mint address.
+
+    Returns:
+        float: The current price of WETH in USD.
+    """
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
     max_retries = 3  # Number of retries
     retries = 0
