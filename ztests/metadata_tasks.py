@@ -42,7 +42,7 @@ async def main():
     tasks = [asyncio.create_task(get_metadata_with_semaphore(sem, mint['mint'], pool)) for mint in mints]
 
     results = await asyncio.gather(*tasks)
-    # If you need to store results back in the database, consider batching the writes here.
+
 
 
 asyncio.run(main())

@@ -1,6 +1,6 @@
 """
  This module provides functionality to process wallet data.
- It interfaces with databases such as wallets.db, tokens.db, and prices.db
+ It interfaces with pg db tables such as wallets, metadata, and token_prices
  to retrieve and update wallet information.
 """
 

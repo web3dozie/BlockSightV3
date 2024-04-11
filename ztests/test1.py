@@ -10,7 +10,7 @@ from walletVettingModule.wallet_vetting_utils import get_sol_price
 
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 rpc_url = 'https://multi-still-haze.solana-mainnet.quiknode.pro/31a3baf7ec201b729d156f47b25ca0cd7390c256/'
-# api_key = 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
+# aider --openai-api-key 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
 
 async def get_dxs_data(mint_token):
     dxs_api_url = f'https://api.dexscreener.com/latest/dex/tokens/{mint_token}'
