@@ -35,13 +35,14 @@ async def get_metadata_with_semaphore(sem, mint, pool):
 
 
 async def main():
-    sem = asyncio.Semaphore(10)  # Limit to 20 concurrent tasks
+    sem = asyncio.Semaphore(20)  # Adjusted to optimal number of concurrent tasks
     mints = await fetch_mints(pg_db_url)
     # CREATE POOL
     pool = await asyncpg.create_pool(dsn=pg_db_url)
-    tasks = [get_metadata_with_semaphore(sem, mint['mint'], pool) for mint in mints]
+    tasks = [asyncio.create_task(get_metadata_with_semaphore(sem, mint['mint'], pool)) for mint in mints]
 
-    await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks)
+    # If you need to store results back in the database, consider batching the writes here.
 
 
 asyncio.run(main())
