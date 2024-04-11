@@ -250,7 +250,17 @@ async def get_weth_price(token_mint: str = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4
 
 
 # DONE -> Fix insertions
-async def insert_wallet_into_db(data, db_url=pg_db_url):
+async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
+    """
+    Insert or update wallet data into the database.
+
+    Args:
+        data (dict): A dictionary containing wallet data with keys corresponding to database columns.
+        db_url (str): Database connection URL.
+
+    Returns:
+        None
+    """
     # Connect to the PostgreSQL database asynchronously
     conn = await asyncpg.connect(dsn=db_url)
     try:
@@ -275,7 +285,17 @@ async def insert_wallet_into_db(data, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def is_wallet_outdated(wallet_address, db_url=pg_db_url):
+async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url) -> bool:
+    """
+    Check if the wallet data in the database is outdated (older than 1 day).
+
+    Args:
+        wallet_address (str): The wallet address to check.
+        db_url (str): Database connection URL.
+
+    Returns:
+        bool: True if the wallet data is outdated, False otherwise.
+    """
     # Calculate the threshold timestamp for 1 day ago
     one_day_ago = int(time.time()) - (24 * 60 * 60)
 
@@ -301,7 +321,17 @@ async def is_wallet_outdated(wallet_address, db_url=pg_db_url):
 
 
 # DONE -> Fix data retrieval
-async def get_wallet_data(wallet_address, db_url=pg_db_url):
+async def get_wallet_data(wallet_address: str, db_url: str = pg_db_url) -> dict:
+    """
+    Retrieve wallet data from the database.
+
+    Args:
+        wallet_address (str): The wallet address for which to retrieve data.
+        db_url (str): Database connection URL.
+
+    Returns:
+        dict: A dictionary containing the wallet data, or an empty dictionary if not found.
+    """
     # Connect to the PostgreSQL database asynchronously
     conn = await asyncpg.connect(dsn=db_url)
     try:
@@ -326,7 +356,17 @@ async def get_wallet_data(wallet_address, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def process_wallet(wallet_address, window=30):
+async def process_wallet(wallet_address: str, window: int = 30) -> dict:
+    """
+    Process a wallet by fetching transactions, calculating PnL, and updating the database.
+
+    Args:
+        wallet_address (str): The wallet address to process.
+        window (int): The number of days to consider for transaction history.
+
+    Returns:
+        dict: A dictionary containing the processed wallet summary.
+    """
     if await is_wallet_outdated(wallet_address):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
