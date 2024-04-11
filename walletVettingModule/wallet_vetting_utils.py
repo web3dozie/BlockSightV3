@@ -205,7 +205,7 @@ async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111
 
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
-        return 200
+        return 180
 
 
 async def get_weth_price(token_mint: str = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs') -> float:
@@ -246,7 +246,7 @@ async def get_weth_price(token_mint: str = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4
 
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
-        return 2300
+        return 3500
 
 
 # DONE -> Fix insertions
