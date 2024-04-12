@@ -39,49 +39,87 @@ async def wallet_exists(wallet_address, db_url=pg_db_url):
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def mint_exists(token_mint, db_url=pg_db_url):
-    try:
-        # Connect to the PostgreSQL database asynchronously
-        conn = await asyncpg.connect(dsn=db_url)
+async def mint_exists(token_mint, db_url=pg_db_url, pool=None):
+    if pool:
         try:
-            # Prepare and execute the SQL query asynchronously
-            query = "SELECT EXISTS(SELECT 1 FROM metadata WHERE token_mint = $1 LIMIT 1);"
-            exists = await conn.fetchval(query, token_mint)
-            return bool(exists)
-        finally:
-            # Ensure the database connection is closed
-            await conn.close()
-    except asyncpg.PostgresError as e:
-        print(f"Database error: {e}")
-    except Exception as e:
-        print(f"Exception in query: {e}")
+            async with pool.acquire() as conn:  # Use a connection from the pool
+                query = "SELECT EXISTS(SELECT 1 FROM metadata WHERE token_mint = $1 LIMIT 1);"
+                exists = await conn.fetchval(query, token_mint)
+                return bool(exists)
+        except asyncpg.PostgresError as e:
+            print(f"Database error: {e}")
+        except Exception as e:
+            print(f"Exception in query: {e}")
+    else:
+        try:
+            # Connect to the PostgreSQL database asynchronously
+            conn = await asyncpg.connect(dsn=db_url)
+            try:
+                # Prepare and execute the SQL query asynchronously
+                query = "SELECT EXISTS(SELECT 1 FROM metadata WHERE token_mint = $1 LIMIT 1);"
+                exists = await conn.fetchval(query, token_mint)
+                return bool(exists)
+            finally:
+                # Ensure the database connection is closed
+                await conn.close()
+        except asyncpg.PostgresError as e:
+            print(f"Database error: {e}")
+        except Exception as e:
+            print(f"Exception in query: {e}")
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=5)
-async def add_metadata_to_db(data, db_url=pg_db_url):
-    # Connect to the PostgreSQL database asynchronously
-    conn = await asyncpg.connect(dsn=db_url)
-    try:
-        # Start a transaction
-        async with conn.transaction():
-            # Insert into metadata table
-            await conn.execute('''
-                INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter, telegram,
-                 other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                ON CONFLICT (token_mint) DO NOTHING
-            ''',
-                               data['token_mint'], data['symbol'], data['name'], data['img_url'], data['starting_mc'],
-                               data['starting_liq'],
-                               data['twitter'], data['telegram'], data['other_links'], data['lp_creation_time'],
-                               data['deployer'], data['bundled'], data['airdropped'], data['supply'], data['decimals']
-                               )
+async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
+    if pool:
+        try:
+            async with pool.acquire() as conn:  # Use a connection from the pool
 
-    except Exception as e:
-        print(f'An error occurred while adding metadata to db: {e}')
-        raise e
-    finally:
-        await conn.close()  # Ensure the connection is closed
+                # Start a transaction
+                async with conn.transaction():
+                    # Insert into metadata table
+                    await conn.execute('''
+                            INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter, telegram,
+                             other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                            ON CONFLICT (token_mint) DO NOTHING
+                        ''',
+                                       data['token_mint'], data['symbol'], data['name'], data['img_url'],
+                                       data['starting_mc'],
+                                       data['starting_liq'],
+                                       data['twitter'], data['telegram'], data['other_links'], data['lp_creation_time'],
+                                       data['deployer'], data['bundled'], data['airdropped'], data['supply'],
+                                       data['decimals']
+                                       )
+        except Exception as e:
+            print(f'An error occurred while adding metadata to db: {e}')
+
+
+    else:
+        # Connect to the PostgreSQL database asynchronously
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            # Start a transaction
+            async with conn.transaction():
+                # Insert into metadata table
+                await conn.execute('''
+                    INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter, telegram,
+                     other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    ON CONFLICT (token_mint) DO NOTHING
+                ''',
+                                   data['token_mint'], data['symbol'], data['name'], data['img_url'],
+                                   data['starting_mc'],
+                                   data['starting_liq'],
+                                   data['twitter'], data['telegram'], data['other_links'], data['lp_creation_time'],
+                                   data['deployer'], data['bundled'], data['airdropped'], data['supply'],
+                                   data['decimals']
+                                   )
+
+        except Exception as e:
+            print(f'An error occurred while adding metadata to db: {e}')
+            raise e
+        finally:
+            await conn.close()  # Ensure the connection is closed
 
 
 # DONE(update with new schema)

@@ -12,10 +12,19 @@ pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight
 helius_api_key = '41a2ecf6-41ff-4ef8-997f-c9b905388725'
 
 
-def is_valid_wallet(string):
+def is_valid_wallet(wallet_address: str) -> bool:
+    """
+    Check if the given wallet address is valid by attempting to decode it and create a VerifyKey object.
+
+    Args:
+        wallet_address (str): The wallet address to validate.
+
+    Returns:
+        bool: True if the wallet address is valid, False otherwise.
+    """
     try:
         # Decode the string from to bytes
-        point_bytes = base58.b58decode(string)
+        point_bytes = base58.b58decode(wallet_address)
 
         # Attempt to create a VerifyKey object, which will validate the point
         VerifyKey(point_bytes)
@@ -26,9 +35,18 @@ def is_valid_wallet(string):
         return False
 
 
-def deduplicate_transactions(txs):
+def deduplicate_transactions(transactions: list) -> list:
+    """
+    Deduplicate transactions by sorting them and ensuring that each out_mint appears only once within a 15-minute window.
+
+    Args:
+        transactions (list): A list of transaction dictionaries to deduplicate.
+
+    Returns:
+        list: A deduplicated list of transaction dictionaries.
+    """
     # Sort transactions by 'out_mint' and then by 'timestamp'
-    sorted_txs = sorted(txs, key=lambda x: (x['out_mint'], x['timestamp']))
+    sorted_txs = sorted(transactions, key=lambda x: (x['out_mint'], x['timestamp']))
 
     # Function to deduplicate transactions
     deduped = []
@@ -49,7 +67,19 @@ def deduplicate_transactions(txs):
     return deduped
 
 
-def determine_grade(trades, win_rate, avg_size, pnl):
+def determine_grade(trades: int, win_rate: float, avg_size: float, pnl: float) -> dict:
+    """
+    Determine the grade of a wallet based on its trading performance metrics.
+
+    Args:
+        trades (int): The number of trades.
+        win_rate (float): The win rate percentage.
+        avg_size (float): The average size of trades.
+        pnl (float): The profit and loss.
+
+    Returns:
+        dict: A dictionary containing the overall grade and individual grades for each metric.
+    """
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
         if value >= thresholds['S']:
@@ -137,7 +167,16 @@ def determine_grade(trades, win_rate, avg_size, pnl):
     }
 
 
-async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'):
+async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111111112') -> float:
+    """
+    Fetch the current price of SOL from the Dexscreener API.
+
+    Args:
+        token_mint (str, optional): The mint address of the SOL token. Defaults to the official SOL mint address.
+
+    Returns:
+        float: The current price of SOL in USD.
+    """
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
     max_retries = 3  # Number of retries
     retries = 0
@@ -166,10 +205,19 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
 
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
-        return 200
+        return 180
 
 
-async def get_weth_price(token_mint='7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'):
+async def get_weth_price(token_mint: str = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs') -> float:
+    """
+    Fetch the current price of WETH from the Dexscreener API.
+
+    Args:
+        token_mint (str, optional): The mint address of the WETH token. Defaults to the official WETH mint address.
+
+    Returns:
+        float: The current price of WETH in USD.
+    """
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
     max_retries = 3  # Number of retries
     retries = 0
@@ -198,11 +246,21 @@ async def get_weth_price(token_mint='7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963vox
 
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
-        return 2300
+        return 3500
 
 
 # DONE -> Fix insertions
-async def insert_wallet_into_db(data, db_url=pg_db_url):
+async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
+    """
+    Insert or update wallet data into the database.
+
+    Args:
+        data (dict): A dictionary containing wallet data with keys corresponding to database columns.
+        db_url (str): Database connection URL.
+
+    Returns:
+        None
+    """
     # Connect to the PostgreSQL database asynchronously
     conn = await asyncpg.connect(dsn=db_url)
     try:
@@ -227,7 +285,17 @@ async def insert_wallet_into_db(data, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def is_wallet_outdated(wallet_address, db_url=pg_db_url):
+async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url) -> bool:
+    """
+    Check if the wallet data in the database is outdated (older than 1 day).
+
+    Args:
+        wallet_address (str): The wallet address to check.
+        db_url (str): Database connection URL.
+
+    Returns:
+        bool: True if the wallet data is outdated, False otherwise.
+    """
     # Calculate the threshold timestamp for 1 day ago
     one_day_ago = int(time.time()) - (24 * 60 * 60)
 
@@ -253,7 +321,17 @@ async def is_wallet_outdated(wallet_address, db_url=pg_db_url):
 
 
 # DONE -> Fix data retrieval
-async def get_wallet_data(wallet_address, db_url=pg_db_url):
+async def get_wallet_data(wallet_address: str, db_url: str = pg_db_url) -> dict:
+    """
+    Retrieve wallet data from the database.
+
+    Args:
+        wallet_address (str): The wallet address for which to retrieve data.
+        db_url (str): Database connection URL.
+
+    Returns:
+        dict: A dictionary containing the wallet data, or an empty dictionary if not found.
+    """
     # Connect to the PostgreSQL database asynchronously
     conn = await asyncpg.connect(dsn=db_url)
     try:
@@ -278,7 +356,17 @@ async def get_wallet_data(wallet_address, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def process_wallet(wallet_address, window=30, db_url=pg_db_url):
+async def process_wallet(wallet_address: str, window: int = 30) -> dict:
+    """
+    Process a wallet by fetching transactions, calculating PnL, and updating the database.
+
+    Args:
+        wallet_address (str): The wallet address to process.
+        window (int): The number of days to consider for transaction history.
+
+    Returns:
+        dict: A dictionary containing the processed wallet summary.
+    """
     if await is_wallet_outdated(wallet_address, db_url=db_url):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')

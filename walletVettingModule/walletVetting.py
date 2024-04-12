@@ -1,6 +1,7 @@
 """
- This module allows me to easily process wallets.
- It should work with wallets.db, tokens.db and prices.db
+ This module provides functionality to process wallet data.
+ It interfaces with pg db tables such as wallets, metadata, and token_prices
+ to retrieve and update wallet information.
 """
 
 from process_wallets_utils import wallet_processor, read_csv_wallets, remove_wallet_from_csv
@@ -9,12 +10,15 @@ import asyncio
 
 
 async def main():
+    # Process wallet data from zipped files in the specified directory
     # wallet_processor('./wallet_zips')
+
     wallet_list = read_csv_wallets('./wallet_counts.csv')
 
     # Create a semaphore to limit concurrent tasks to 10
     semaphore = asyncio.Semaphore(10)
 
+    # Define an asynchronous function to process a wallet with semaphore control
     async def process_wallet_with_semaphore(wallet):
         async with semaphore:
             retv = await process_wallet(wallet)

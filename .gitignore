@@ -5,6 +5,8 @@ venv
 **/**/*.pyc
 **/**/*.tsv
 **/**/*.joblib
+.aider*
+=======
 **/**/.idea
 **/**/node_modules
 **/**/.vscode
@@ -32,3 +34,4 @@ logs
 **/**/*.njsproj
 **/**/*.sln
 **/**/*.sw?
+
