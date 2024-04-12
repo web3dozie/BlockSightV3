@@ -1,4 +1,7 @@
 import asyncio
+import random
+
+import aiohttp
 import asyncpg
 from metadataAndSecurityModule.metadataUtils import get_metadata
 
@@ -21,28 +24,31 @@ async def fetch_mints(db_url):
           WHERE metadata.token_mint = combined.mint
         )
         ORDER BY combined.mint;
-
         '''
         return await conn.fetch(query)
     finally:
         await conn.close()
 
 
-async def get_metadata_with_semaphore(sem, mint, pool):
+async def get_metadata_with_semaphore(sem, mint, pool, session=None):
     async with sem:
-        metadata = await get_metadata(mint, regular_use=False, pool=pool)
+        metadata = await get_metadata(mint, regular_use=False, pool=pool, session=session)
         return metadata
 
 
 async def main():
-    sem = asyncio.Semaphore(20)  # Adjusted to optimal number of concurrent tasks
+    sem = asyncio.Semaphore(50)
     mints = await fetch_mints(pg_db_url)
+
+    # session = None
+
     # CREATE POOL
     pool = await asyncpg.create_pool(dsn=pg_db_url)
-    tasks = [asyncio.create_task(get_metadata_with_semaphore(sem, mint['mint'], pool)) for mint in mints]
+    tasks = [asyncio.create_task(get_metadata_with_semaphore(sem, mint['mint'], pool))for mint in mints]
 
     results = await asyncio.gather(*tasks)
 
+    # await session.close()
 
 
 asyncio.run(main())

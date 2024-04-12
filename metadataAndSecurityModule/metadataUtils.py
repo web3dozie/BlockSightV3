@@ -36,7 +36,7 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
 
         except Exception as e:
             retries += 1
-            print(f"Error: {e}, DXS retrying in 1 second...")
+            # print(f"Error: {e}, DXS retrying in 1 second...")
             await asyncio.sleep(1)
         else:
             # If successful, exit the loop
@@ -165,8 +165,8 @@ async def get_dxs_data(mint_token):
 
         except Exception as e:
             retries += 1
-            print(f"Error: {e}, DXS retrying in 1 seconds... | Mint: {mint_token}")
-            await asyncio.sleep(1)
+            # print(f"Error: {e}, DXS retrying in 1 seconds... | Mint: {mint_token}")
+            await asyncio.sleep(0.25)
         else:
             # If successful, exit the loop
             break
@@ -200,7 +200,11 @@ async def get_target_slot_timestamp(slot_number):
     client = Client(cluster_url)
     initial_range = [0]  # Starting with the current slot
 
-    extended_ranges = [[1, -1], [2, -2], [3, -3], [4, -4], [5, -5], [6, -6], [7, -7], [8, -8], [9, -9], [10, -10]]
+    extended_ranges = [[1, -1], [2, -2], [3, -3], [4, -4], [5, -5], [6, -6], [7, -7], [8, -8], [9, -9], [10, -10],
+                       [11, -11], [12, -12], [13, -13], [14, -14], [15, -15], [16, -16], [17, -17], [18, -18],
+                       [19, -19],
+                       [20, -20], [21, -21], [22, -22], [23, -23], [24, -24], [25, -25], [26, -26], [27, -27],
+                       [28, -28]]
 
     retries = 3
     for attempt in range(retries):
@@ -209,17 +213,18 @@ async def get_target_slot_timestamp(slot_number):
                 for delta in delta_range:
                     try:
                         slot_timestamp = client.get_block_time(slot_number + delta).value
-                        return slot_timestamp  # Return on the first successful fetch
+                        if slot_timestamp is not None:
+                            return slot_timestamp  # Return on the first successful fetch
                     except RPCException:
-                        await asyncio.sleep(0.5)  # Wait before trying the next delta
+                        await asyncio.sleep(0.2)  # Wait before trying the next delta
                         continue  # Proceed to try with the next delta in the range
             except SolanaRpcException:
-                raise Exception("Failed to fetch slot timestamp after multiple retries")
+                continue
         if attempt < retries - 1:  # If not the last attempt, reset to try the entire range again
             print(f"Attempt {attempt + 1} failed, retrying entire range after a short wait...")
             await asyncio.sleep(0.5)  # Wait before retrying the entire range
         else:
-            raise Exception("Failed to fetch slot timestamp after multiple retries")
+            return None
 
     # If the function hasn't returned by this point, no valid timestamp was found
     raise ValueError(f"No valid timestamp found near slot number {slot_number}")
@@ -234,7 +239,7 @@ async def deep_deploy_tx_search(target_timestamp):
         print("Target timestamp is in the future.")
         return None
 
-    low = 100000000
+    low = 10000000
     high = current_slot_number
     last_valid_mid = None  # Keep track of the last valid slot found
 
@@ -261,7 +266,7 @@ async def deep_deploy_tx_search(target_timestamp):
         return None
 
 
-async def parse_tx_list(tx_list, api_key=helius_api_key):
+async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
     if tx_list == ['']:
         return []
 
@@ -272,7 +277,24 @@ async def parse_tx_list(tx_list, api_key=helius_api_key):
 
     while attempt < max_attempts:
         try:
-            async with aiohttp.ClientSession() as session:
+            if session is None:
+
+                max_attempts = 5  # Set the maximum number of retry attempts
+
+                for attempt in range(max_attempts):
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(url, json={"transactions": tx_list}) as response:
+                                data = await response.json()
+                        break  # Exit the loop if the function succeeds
+                    except Exception as e:
+                        if attempt < max_attempts - 1:
+                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                        else:
+                            raise  # Re-raise the last exception if all retries fail
+
+                return data
+            else:
                 async with session.post(url, json={"transactions": tx_list}) as response:
                     data = await response.json()
                     return data
@@ -304,20 +326,29 @@ async def get_data_from_helius(token_mint, api_key):
         },
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload) as response:
-            if response.status == 200:
-                result = await response.json()
-                result = result.get('result')
+    max_attempts = 5  # Set the maximum number of retry attempts
+    for attempt in range(max_attempts):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        result = result.get('result')
 
+                    else:
+                        print(f"Failed to fetch metadata for {token_mint} (helius). Status code:", response.status)
+                        result = {}
+            break  # Exit the loop if the function succeeds
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
             else:
-                print(f"Failed to fetch metadata for {token_mint} (helius). Status code:", response.status)
-                result = {}
+                raise  # Re-raise the last exception if all retries fail
 
     return result
 
 
-async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
+async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=None):
     result = await get_data_from_helius(token_mint, api_key)
 
     try:
@@ -356,6 +387,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
     max_retries = 2
     attempts = 0
     deploy_sig = None
+    lp_creation_time = None
 
     while attempts < max_retries:
         try:
@@ -390,11 +422,16 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                 # After max retries, handle with the except logic
 
                 dxs_data = await get_dxs_data(token_mint)
+
                 lp_creation_time = dxs_data['lp_creation_time']
                 lp_address = dxs_data['pool_address']
 
                 try:
                     deploy_slot = await deep_deploy_tx_search(lp_creation_time - 1)
+
+                    if deploy_slot is None:
+                        raise TypeError
+
                 except TypeError:
                     return {
                         'token_mint': token_mint,
@@ -406,7 +443,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                         'twitter': None,
                         'telegram': None,
                         'other_links': None,
-                        'lp_creation_time': None,
+                        'lp_creation_time': lp_creation_time,
                         'deployer': deployer,
                         'bundled': None,
                         'airdropped': None,
@@ -455,8 +492,19 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                         # Slice the deploy_sigs list to get a chunk of at most 100 elements
                         chunk = large_list_of_sigs[start_index:end_index]
 
-                        # Parse the current chunk
-                        parsed_txs = await parse_tx_list(chunk)
+                        max_attempt = 5  # Set the maximum number of retry attempts
+
+                        parsed_txs = []
+                        for att in range(max_attempt):
+                            try:
+                                # Parse the current chunk
+                                parsed_txs = await parse_tx_list(chunk)
+                                break  # Exit the loop if the function succeeds
+                            except Exception as e:
+                                if att < max_attempt - 1:
+                                    await asyncio.sleep(0.25)  # Exponential backoff
+                                else:
+                                    parsed_txs = []
 
                         # Extend the all_parsed_txs list with the results
                         all_parsed_txs.extend(parsed_txs)
@@ -477,7 +525,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
                 except IndexError:
                     deploy_sig = ''
 
-    deploy_tx = await parse_tx_list([deploy_sig])
+    deploy_tx = await parse_tx_list([deploy_sig], session=session)
 
     if not deploy_tx:
         return {
@@ -490,7 +538,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
             'twitter': None,
             'telegram': None,
             'other_links': None,
-            'lp_creation_time': None,
+            'lp_creation_time': lp_creation_time,
             'deployer': deployer,
             'bundled': None,
             'airdropped': None,
@@ -513,7 +561,17 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
 
     relevant_txs.remove(deploy_sig)
 
-    relevant_txs = await parse_tx_list(relevant_txs)
+    max_attempts = 5
+
+    for attempt in range(max_attempts):
+        try:
+            relevant_txs = await parse_tx_list(relevant_txs)
+            break  # Exit the loop if the function succeeds
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(0.25)  # Exponential backoff
+            else:
+                raise  # Re-raise the last exception if all retries fail
 
     relevant_txs_confirmed = []
     for tx in relevant_txs:
@@ -566,8 +624,12 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
 
     if deployer in ['TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM']:
         airdropped = 0.00
-    elif airdropped >= 100 or airdropped <= -100:
+
+    if airdropped >= 100 or airdropped <= -100:
         airdropped = None
+
+    if bundled >= 100 or bundled <= -100:
+        bundled = None
 
     print(f'Airdropped: {airdropped}%')
 
@@ -600,15 +662,36 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key):
     return payload
 
 
-async def get_metadata(token_mint, regular_use: bool = True, pool=None):
+async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=None):
     # if token is not in DB already, fetch metadata with helius API and add it to db[else get it from the db]
 
     if not await mint_exists(token_mint, pool=pool):  # TODO -> I/O that we can potentially remove
         # print(token_mint)
-        metadata = await retrieve_metadata(token_mint)
+        metadata = await retrieve_metadata(token_mint, session=session)
 
         if not metadata:
             # TODO -> add a record that logs the bad token so that we can early exit if we see it again.
+            '''
+            metadata = {
+                'token_mint': token_mint,
+                'symbol': symbol,
+                'name': name,
+                'img_url': img_url,
+                'starting_mc': None,
+                'starting_liq': None,
+                'twitter': None,
+                'telegram': None,
+                'other_links': None,
+                'lp_creation_time': None,
+                'deployer': deployer,
+                'bundled': None,
+                'airdropped': None,
+                'supply': supply,
+                'decimals': decimals
+            }
+            '''
+
+            pprint(f'{token_mint} DOES NOT HAVE VALID METADATA')
             return
 
         # Add metadata to db

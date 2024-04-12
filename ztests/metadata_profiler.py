@@ -5,6 +5,7 @@ import pstats
 import io
 from metadata_tasks import fetch_mints, get_metadata_with_semaphore, pg_db_url
 
+
 async def main():
     sem = asyncio.Semaphore(20)
     mints = await fetch_mints(pg_db_url)
@@ -12,6 +13,7 @@ async def main():
     tasks = [asyncio.create_task(get_metadata_with_semaphore(sem, mint['mint'], pool)) for mint in mints]
 
     results = await asyncio.gather(*tasks)
+
 
 def profile_main():
     pr = cProfile.Profile()
@@ -23,6 +25,7 @@ def profile_main():
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
     ps.print_stats()
     print(s.getvalue())
+
 
 if __name__ == "__main__":
     profile_main()
