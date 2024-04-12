@@ -4,7 +4,7 @@
  to retrieve and update wallet information.
 """
 
-from process_wallets_utils import wallet_processor, read_csv_wallets
+from process_wallets_utils import wallet_processor, read_csv_wallets, remove_wallet_from_csv
 from walletVettingModule.wallet_vetting_utils import process_wallet
 import asyncio
 
@@ -21,7 +21,11 @@ async def main():
     # Define an asynchronous function to process a wallet with semaphore control
     async def process_wallet_with_semaphore(wallet):
         async with semaphore:
-            await process_wallet(wallet)
+            retv = await process_wallet(wallet)
+            print("processed wallet", retv)
+            if retv is not None:
+                remove_wallet_from_csv('./wallet_counts.csv', wallet)
+
 
     # Create tasks list
     tasks = [process_wallet_with_semaphore(wallet) for wallet in wallet_list]

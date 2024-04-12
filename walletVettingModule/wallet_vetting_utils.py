@@ -1,4 +1,4 @@
-import time, aiohttp, asyncio, base58, asyncpg
+import time, aiohttp, asyncio, base58, asyncpg, random
 
 from pprint import pprint
 
@@ -9,7 +9,7 @@ from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
-helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
+helius_api_key = '41a2ecf6-41ff-4ef8-997f-c9b905388725'
 
 
 def is_valid_wallet(wallet_address: str) -> bool:
@@ -367,12 +367,13 @@ async def process_wallet(wallet_address: str, window: int = 30) -> dict:
     Returns:
         dict: A dictionary containing the processed wallet summary.
     """
-    if await is_wallet_outdated(wallet_address):
+    if await is_wallet_outdated(wallet_address, db_url=db_url):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
-        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
+        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, db_url=db_url)
+        if len(thirty_day_swaps) == 0:
+            raise Exception("Unable to fetch txs")
         print('FETCHED TXS')
-
         sol_price = await get_sol_price()
 
         pnl = round(await calculate_pnl(thirty_day_swaps, sol_price), 2)
@@ -457,7 +458,7 @@ async def process_wallet(wallet_address: str, window: int = 30) -> dict:
         pprint(wallet_summary)
         print('\n\n')
 
-        await insert_wallet_into_db(wallet_summary)
+        await insert_wallet_into_db(wallet_summary, db_url=db_url)
         return wallet_summary
 
     else:
@@ -622,6 +623,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
         retries = 0
         while retries < max_retries:
             try:
+                await asyncio.sleep(random.randint(3,20)) # trying to avoid 429's
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as response:
                         if response.status == 200:
@@ -633,7 +635,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
                             for tx in tx_data_batch:
 
-                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp:
+                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
                                     continue
                                 tx_data.append(tx)
 
@@ -648,11 +650,12 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
             except Exception as e:
                 retries += 1
-                print(f"Error: {e}, retrying in 5 seconds...")
-                await asyncio.sleep(5)
+                print(f"Error: {e}, retrying in {retries * 5} seconds...")
+                await asyncio.sleep(retries * 5)
 
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
+                await conn.close()
                 return []
 
     # slow version of the comprehension
@@ -668,53 +671,60 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     tasks = [get_metadata(mint) for mint in mints]
     await asyncio.gather(*tasks)
     '''
+    swap_txs_tuples = None
+    if len(tx_data) > 0:
+        swap_txs = await parse_for_swaps(tx_data)  # No I/O in here
 
-    swap_txs = await parse_for_swaps(tx_data)  # No I/O in here
-
-    swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
+        swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
                         tx['timestamp']) for tx in swap_txs]
-
+        swap_txs_tuples = set(swap_txs_tuples)
+    try:
     # Inserting new swap transactions into the database
-    if swap_txs_tuples:  # TODO I/O -> Check later for improvable parts.
-        await conn.executemany(
-            "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (txid) DO NOTHING",
-            swap_txs_tuples
-        )
+        if swap_txs_tuples:  # TODO I/O -> Check later for improvable parts.
+            # await conn.executemany(
+            #     "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
+            #     "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (txid) DO NOTHING",
+            #     swap_txs_tuples
+            # )
 
-    # Retrieving swap transactions within a specific time window
-    end_time = int(time.time())
-    start_time = end_time - (window * 24 * 60 * 60)
+            await conn.copy_records_to_table("txs", records=swap_txs_tuples)
 
-    query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
+        # Retrieving swap transactions within a specific time window
+        end_time = int(time.time())
+        start_time = end_time - (window * 24 * 60 * 60)
 
-    rows = await conn.fetch(query, wallet, start_time, end_time)  # TODO -> Some I/O here check later for improvements
-    swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
+        query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
 
-    '''
+        rows = await conn.fetch(query, wallet, start_time, end_time)  # TODO -> Some I/O here check later for improvements
+        swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
+
+    
     except Exception as e:
-        print(f"Error {e} while running get_wallet_txs operations for wallet {wallet}.")
-        return []
-    finally:
+        print(f"Error {e} while running db insertion/retrieval operations for wallet {wallet}.")
         await conn.close()
-    '''
+        return []
 
+    await conn.close()
     return swap_txs_in_window
 
 
 async def parse_for_swaps(tx_data):
     txs = []
-    # Filter to include only swaps
-    for tx in tx_data:
+    async def wrapper(tx):
         str_val = str(tx)
         substrings = ('NonFungible', 'TENSOR', "'ProgrammableNFT'", 'FLiPggWYQyKVTULFWMQjAk26JfK5XRCajfyTmD5weaZ7')
         if any(sub in str_val for sub in substrings):
-            continue
+            return None
         # pprint(f'\n\n\nValid TX: \n{tx}')
         payload = await parse_tx_get_swaps(tx)
         # Only valid swap txs
         if payload['wallet'] is not None:
-            txs.append(payload)
+            return payload
+
+    # Filter to include only swaps
+    tasks = [wrapper(tx) for tx in tx_data]
+    txs = await asyncio.gather(*tasks)
+    txs = [tx for tx in txs if tx]
     return txs
 
 if __name__ == '__main__':
