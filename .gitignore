@@ -10,7 +10,7 @@ venv
 **/**/.idea
 **/**/node_modules
 **/**/.vscode
-
+**/**/profile.json
 # Logs
 logs
 **/**/*.log
