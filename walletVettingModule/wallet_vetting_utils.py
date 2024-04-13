@@ -356,7 +356,7 @@ async def get_wallet_data(wallet_address: str, db_url: str = pg_db_url) -> dict:
         await conn.close()  # Ensure the connection is closed
 
 
-async def process_wallet(wallet_address: str, window: int = 30) -> dict:
+async def process_wallet(wallet_address: str, window: int = 30, db_url=pg_db_url) -> dict:
     """
     Process a wallet by fetching transactions, calculating PnL, and updating the database.
 
