@@ -309,7 +309,7 @@ async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
                 raise e
 
 
-async def get_data_from_helius(token_mint, api_key):
+async def get_data_from_helius(token_mint, api_key=helius_api_key):
     url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
     headers = {
         'Content-Type': 'application/json',

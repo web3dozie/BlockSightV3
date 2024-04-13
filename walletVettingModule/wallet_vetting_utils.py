@@ -367,10 +367,10 @@ async def process_wallet(wallet_address: str, window: int = 30) -> dict:
     Returns:
         dict: A dictionary containing the processed wallet summary.
     """
-    if await is_wallet_outdated(wallet_address, db_url=db_url):
+    if await is_wallet_outdated(wallet_address):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
-        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, db_url=db_url)
+        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
         if len(thirty_day_swaps) == 0:
             raise Exception("Unable to fetch txs")
         print('FETCHED TXS')
@@ -458,7 +458,7 @@ async def process_wallet(wallet_address: str, window: int = 30) -> dict:
         pprint(wallet_summary)
         print('\n\n')
 
-        await insert_wallet_into_db(wallet_summary, db_url=db_url)
+        await insert_wallet_into_db(wallet_summary)
         return wallet_summary
 
     else:
