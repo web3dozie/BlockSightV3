@@ -11,7 +11,7 @@ from solders.pubkey import Pubkey
 from datetime import datetime, timedelta
 from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db
 
-helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
+helius_api_key = '41a2ecf6-41ff-4ef8-997f-c9b905388725'
 rpc_url = 'https://multi-still-haze.solana-mainnet.quiknode.pro/31a3baf7ec201b729d156f47b25ca0cd7390c256/'
 
 
@@ -309,7 +309,7 @@ async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
                 raise e
 
 
-async def get_data_from_helius(token_mint, api_key):
+async def get_data_from_helius(token_mint, api_key=helius_api_key):
     url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
     headers = {
         'Content-Type': 'application/json',
