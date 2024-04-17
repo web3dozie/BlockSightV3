@@ -235,4 +235,4 @@ async def is_win_trade(token_mint, timestamp, pool=None, db_url=pg_db_url):
         except Exception as e:
             print(f'Error occurred in is_win_trade: {e}')
         finally:
-            conn.close()
+            await conn.close()
