@@ -2,6 +2,7 @@
 PRIMARY LOGIN METHOD WILL BE VIA A DISCORD ACCOUNT
 """
 import random
+import re
 import time
 from datetime import datetime
 from pprint import pprint
@@ -11,7 +12,6 @@ import discord
 
 from discord import Embed
 from walletVettingModule.wallet_vetting_utils import is_valid_wallet
-
 
 BLOCKSIGHT_SERVER_ID = 1101255371210887258
 VERIFIED_ROLE = 1200907085320294460
@@ -30,7 +30,6 @@ async def login(user: discord.User, db_path=pg_db_url):
 
 
 async def get_max_role(client: discord.Client, user: discord.User):
-
     guild = client.get_guild(BLOCKSIGHT_SERVER_ID)
     member = await guild.fetch_member(user.id)
 
@@ -147,6 +146,144 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
         return '', embed
 
+    # ??link_wallet command
+    elif text.startswith('.link '):
+        def invalid_embed(inv_embed):
+            inv_embed.title = 'Invalid Format'
+            inv_embed.set_footer(text=f"BlockSight",
+                                 icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                          "1189235897288372244/BSL_Gradient.png")
+            inv_embed.add_field(name=".link <data to link> <value to link>",
+                                value='Use the right format\n'
+                                      'BE CAREFUL! ENTRIES CAN NOT BE EDITED!\n\n'
+                                      'Examples:\n\n'
+                                      '> .link email blocksight@gmail.com\n'
+                                      '> .link telegram @BlockSight\n'
+                                      '> .link twitter @BlockSightData\n'
+                                      '> .link wallet 6RTJyh89djPm...\n\n',
+                                inline=True)
+
+            return inv_embed
+
+        def valid_embed(val_embed, col):
+            val_embed.title = f'Successfully linked your {col}'
+            val_embed.set_footer(text=f"BlockSight",
+                                 icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                          "1189235897288372244/BSL_Gradient.png")
+            return val_embed
+
+        def no_edits_embed(val_embed, col):
+            val_embed.title = f'No Edits Allowed'
+            val_embed.set_footer(text=f"BlockSight",
+                                 icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                          "1189235897288372244/BSL_Gradient.png")
+            val_embed.add_field(name=f"You already linked a {col_name}",
+                                value='',
+                                inline=True)
+            return val_embed
+
+        link_embed = Embed(color=0xc8a2c8)
+        split_text = text.split()
+
+        if len(split_text) != 3:
+            link_embed = invalid_embed(link_embed)
+            return '', link_embed
+
+        col_name = split_text[1]
+        col_data = text.split()[2]
+
+        def check_data(column_name, column_data):
+            regex_map = {
+                'email': r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
+                'telegram': r"@[a-zA-Z_][a-zA-Z0-9_]*",
+                'twitter': r"@[a-zA-Z_][a-zA-Z0-9_]*",
+                'wallet': r'[1-9A-HJ-NP-Za-km-z]{32,44}'
+            }
+
+            # Check if the column name is a key in the regex_map
+            if column_name in regex_map:
+                # Check if the column data matches the regex for that column
+                if re.match(regex_map[column_name], column_data):
+                    return True
+
+            return False
+
+        valid_data = check_data(col_name, col_data)
+
+        if valid_data:
+            updated = await edit_user_data(user.name, col_data, col_name)
+
+            if updated:
+                link_embed = valid_embed(link_embed, col_name)
+                await adjust_points(user.name, 5)
+                return '', link_embed
+            else:
+                link_embed = no_edits_embed(link_embed, col_name)
+                return '', link_embed
+
+        else:
+            link_embed = invalid_embed(link_embed)
+            return '', link_embed
+
+    # ??use_code command
+    elif text.startswith('.use_code '):
+        code = text.split()[1].upper()
+
+        def success_embed(val_embed, code_, valid):
+            if valid:
+                val_embed.title = f'Successfully used code: {code_}'
+                val_embed.set_footer(text=f"BlockSight",
+                                     icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                              "1189235897288372244/BSL_Gradient.png")
+            else:
+                val_embed.title = f'Failed to use code: {code_}'
+                val_embed.set_footer(text=f"BlockSight",
+                                     icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                              "1189235897288372244/BSL_Gradient.png")
+            return val_embed
+
+        use_code_embed = Embed(color=0xc8a2c8)
+
+        successful = await use_referral_code(user.name, code)
+
+        use_code_embed = success_embed(use_code_embed, code, successful)
+
+        return '', use_code_embed
+
+    # ??create_code command
+    elif text.startswith('.create_code '):
+        code = text.split()[1].upper()
+
+        def success_embed(val_embed, code_, valid):
+            if valid:
+                val_embed.title = f'Successfully created code: {code_}'
+                val_embed.set_footer(text=f"BlockSight",
+                                     icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                              "1189235897288372244/BSL_Gradient.png")
+            else:
+                val_embed.title = f'Failed to create code: {code_}'
+                val_embed.description = 'Codes must be unique and should be 3 - 15 characters long.'
+                val_embed.set_footer(text=f"BlockSight",
+                                     icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                              "1189235897288372244/BSL_Gradient.png")
+            return val_embed
+
+        create_code_embed = Embed(color=0xc8a2c8)
+
+        successful = await create_referral_code(user.name, code)
+
+        create_code_embed = success_embed(create_code_embed, code, successful)
+
+        return '', create_code_embed
+
+    else:
+        bad_command_embed = Embed(color=0xc8a2c8, title='Invalid Command',
+                                  description='Use .help to see the command list')
+        bad_command_embed.set_footer(text=f"BlockSight",
+                                     icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                              "1189235897288372244/BSL_Gradient.png")
+        return '', bad_command_embed
+
 
 async def add_user_to_db(username: str, current_plan='FREE', plan_end_date=9999999999, db_path=pg_db_url):
     if db_path is None:
@@ -204,7 +341,7 @@ async def get_all_users(db_path=pg_db_url):
         await conn.close()
 
 
-async def adjust_credits(username, amount, db_path='pg_db_url', spending=True):
+async def adjust_credits(username, amount, db_path=pg_db_url, spending=True):
     # Returns a bool,
     # that will be used to show if a credit consuming operation is valid or not
 
@@ -238,7 +375,7 @@ async def adjust_credits(username, amount, db_path='pg_db_url', spending=True):
         await conn.close()
 
 
-async def adjust_points(username, amount, multiplier=1, db_path='pg_db_url'):
+async def adjust_points(username, amount, multiplier=1, db_path=pg_db_url):
     # Randomised points increment, returns a bool to indicate if the operation was successful
 
     conn = await asyncpg.connect(db_path)  # Connect to the database
@@ -270,12 +407,13 @@ async def adjust_points(username, amount, multiplier=1, db_path='pg_db_url'):
         await conn.close()
 
 
-async def edit_user_data(username, new_data, col_name='', db_path='pg_db_url'):
+async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url):
     # Define a dictionary mapping valid column names to their SQL-safe names
     valid_columns = {
         'twitter': 'twitter',
         'telegram': 'telegram',
-        'wallet': 'wallet'
+        'wallet': 'wallet',
+        'email': 'email'
     }
 
     if col_name not in valid_columns:
@@ -291,7 +429,7 @@ async def edit_user_data(username, new_data, col_name='', db_path='pg_db_url'):
     conn = await asyncpg.connect(db_path)
     try:
         # Prepare the query to update the specified column using the safe column name
-        query = f'UPDATE users SET {safe_col_name} = $1 WHERE username = $2;'
+        query = f"UPDATE users SET {safe_col_name} = $1 WHERE username = $2 AND {safe_col_name} IS NULL;"
         result = await conn.execute(query, new_data, username)
 
         # Check if the update was successful
@@ -300,9 +438,9 @@ async def edit_user_data(username, new_data, col_name='', db_path='pg_db_url'):
         await conn.close()
 
 
-async def create_referral_code(username, code, db_path='pg_db_url'):
+async def create_referral_code(username, code, db_path=pg_db_url):
     # Check the length of the code
-    if len(code) < 3 or len(code) > 10:
+    if len(code) < 3 or len(code) > 15:
         return False  # Return False - Code is too short or too long
 
     conn = await asyncpg.connect(db_path)  # Connect to the database
@@ -318,12 +456,16 @@ async def create_referral_code(username, code, db_path='pg_db_url'):
         updated_code = await conn.fetchval(query, code, username)
 
         # Check if the code was updated successfully
-        return updated_code == code
+        if updated_code == code:
+            await adjust_points(username, 30)
+            return True
+        else:
+            return False
     finally:
         await conn.close()
 
 
-async def use_referral_code(username, code, db_path='pg_db_url'):
+async def use_referral_code(username, code, db_path=pg_db_url):
     conn = await asyncpg.connect(db_path)
     try:
         # Start a transaction

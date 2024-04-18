@@ -72,10 +72,8 @@ class CompanionBot:
 
                             elif role_beta in member.roles:
                                 if text.startswith('.'):
-
                                     # COMMAND PROCESSING CODE HERE
                                     content, embed = await discord_command_executor(text, user, client=self.client)
-                                    pprint('COMMAND PROCESSED')
                                     await message.channel.send(content=content, embed=embed)
 
                                 else:
