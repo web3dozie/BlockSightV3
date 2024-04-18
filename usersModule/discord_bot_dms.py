@@ -4,7 +4,7 @@ import discord, asyncio
 from discord import Embed
 
 from dbs.db_operations import user_exists
-from usersModule.user_utils import sign_up, discord_command_executor
+from usersModule.user_utils import discord_command_executor, add_user_to_db
 
 BOT_TOKEN = 'MTIwNDgyMDc3MjM1OTc2NjA2Ng.GRhhu0.3zkLNrB7dzcPcou_309mKRQ0WWDFbFqwg2pjlg'
 BLOCKSIGHT_SERVER_ID = 1101255371210887258
@@ -54,7 +54,9 @@ class CompanionBot:
 
                 # Check if the user is in the DB. If not, prompt to sign-up
                 if not await user_exists(user.name):
-                    await sign_up(user.name)
+                    print('started')
+                    await add_user_to_db(user.name)
+                    print('finished adding')
 
                 if self.guild:
                     member = self.guild.get_member(user.id)

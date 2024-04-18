@@ -22,10 +22,6 @@ HONORARY_ROLE = 1184125377124257842
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
 
 
-async def sign_up(username, db_path=pg_db_url):
-    await add_user_to_db(username)
-
-
 async def login(user: discord.User, db_path=pg_db_url):
     # check if they are in db
     # if they are proceed
@@ -132,6 +128,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         max_role = await get_max_role(client, user)
 
         await update_max_role(user.name, max_role)
+        embed.set_thumbnail(url=user.avatar)
 
         embed.add_field(name=f'Wallet:', value=info['wallet'])
         embed.add_field(name=f'Max Role:', value=info['max_role'])
@@ -151,17 +148,23 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         return '', embed
 
 
-async def add_user_to_db(username: str, db_path=pg_db_url):
+async def add_user_to_db(username: str, current_plan='FREE', plan_end_date=9999999999, db_path=pg_db_url):
+    if db_path is None:
+        raise ValueError("Database path must be provided")
+
     conn = await asyncpg.connect(db_path)
     try:
-        # You could add more fields by modifying the query and the values passed
-        await conn.execute(
-            """
-            INSERT INTO users (username, current_plan) VALUES ($1, $2)
-            ON CONFLICT (username) DO NOTHING;
-            """,
-            username, 'FREE'
-        )
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO users (username, current_plan, plan_end_date, points, credits) VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (username) DO NOTHING;
+                """,
+                username, current_plan, plan_end_date, 0, 1000
+            )
+    except Exception as e:
+        # Add error handling or logging here
+        print(f"An error occurred while adding user: {e}")
     finally:
         await conn.close()
 
