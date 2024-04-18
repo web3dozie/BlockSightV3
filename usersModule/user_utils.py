@@ -2,21 +2,28 @@
 PRIMARY LOGIN METHOD WILL BE VIA A DISCORD ACCOUNT
 """
 import random
+import time
+from datetime import datetime
+from pprint import pprint
+
 import asyncpg
 import discord
 
+from discord import Embed
 from walletVettingModule.wallet_vetting_utils import is_valid_wallet
+
+
+BLOCKSIGHT_SERVER_ID = 1101255371210887258
+VERIFIED_ROLE = 1200907085320294460
+BETA_ROLE = 1184124534366933143
+BETA_PRIME_ROLE = 1192053087586762803
+HONORARY_ROLE = 1184125377124257842
 
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
 
 
-async def sign_up(user: discord.User, db_path=pg_db_url):
-    # login via discord
-
-    # check if they are in the server and verified
-    # if they are add user to db return true
-    # else return false
-    pass
+async def sign_up(username, db_path=pg_db_url):
+    await add_user_to_db(username)
 
 
 async def login(user: discord.User, db_path=pg_db_url):
@@ -26,16 +33,134 @@ async def login(user: discord.User, db_path=pg_db_url):
     pass
 
 
+async def get_max_role(client: discord.Client, user: discord.User):
+
+    guild = client.get_guild(BLOCKSIGHT_SERVER_ID)
+    member = await guild.fetch_member(user.id)
+
+    role_verified = guild.get_role(VERIFIED_ROLE)
+    role_beta = guild.get_role(BETA_ROLE)
+    role_beta_prime = guild.get_role(BETA_PRIME_ROLE)  # Corrected variable
+    role_honorary = guild.get_role(HONORARY_ROLE)  # Corrected variable
+
+    # Define a list of roles in the order of their priority
+    priority_roles = [role_honorary, role_beta_prime, role_beta, role_verified]
+
+    # Find the highest priority role the member has
+    max_role = next((role for role in priority_roles if role in member.roles), None)
+
+    return max_role.name if max_role else None
+
+
+async def update_max_role(username: str, role: str, db_path: str = pg_db_url):
+    conn = await asyncpg.connect(db_path)
+    try:
+        await conn.execute(
+            """
+            INSERT INTO users (username, max_role) VALUES ($1, $2)
+            ON CONFLICT (username) DO UPDATE
+            SET max_role = EXCLUDED.max_role
+            """,
+            username, role
+        )
+    finally:
+        # Ensure the connection is always closed
+        await conn.close()
+
+
+async def assign_role():
+    pass
+
+
+async def discord_command_executor(text: str, user: discord.User, client: discord.Client):
+    """
+        This function executes commands and returns responses for sending
+        :param client:
+        :param user:
+        :param text:
+        :return: content, embed
+    """
+    # .help command
+    if text == '.help'.lower():
+
+        embed = Embed(title='Command List', color=0xc8a2c8, timestamp=datetime.now(),
+                      description='Contains information on supported bot commands', )
+
+        embed.set_footer(text=f"BlockSight | Made with 💜 by @web3dozie",
+                         icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                  "1189235897288372244/BSL_Gradient.png")
+
+        embed.add_field(name=".help", value='Shows the command list', inline=False)
+        embed.add_field(name="", value='', inline=True)
+        embed.add_field(name=".my_info", value='Shows your information', inline=False)
+        embed.add_field(name="", value='', inline=False)
+        embed.add_field(name=".link <data to link> <value to link>", value='Link your data to your account\n'
+                                                                           'BE CAREFUL! ENTRIES cAN NOT BE EDITED!\n\n'
+                                                                           'Examples:\n\n'
+                                                                           '> .link email blocksight@gmail.com\n'
+                                                                           '> .link telegram @BlockSight\n'
+                                                                           '> .link twitter @BlockSightData\n'
+                                                                           '> .link wallet 6RTJyh89djPm...\n\n',
+                        inline=True)
+        embed.add_field(name="", value='', inline=False)
+        embed.add_field(name=".use_code <CODE>", value='Use a referral code', inline=False)
+        embed.add_field(name="", value='', inline=False)
+        embed.add_field(name=".create_code <CODE>", value='Create a referral code',
+                        inline=False)
+        embed.add_field(name="", value='', inline=False)
+        embed.add_field(name=".scan <wallet_address> || .scan <@public_tg>",
+                        value='Scan any wallet or Public Telegram Caller to see its detailed stats and ratings.\n'
+                              'Use this to find smart wallets, check your personal stats or rate a caller.\n'
+                              'This is a very computationally intensive task, so allow up to 10 minutes per scan. '
+                              'Scans consume credits.',
+                        inline=False)
+
+        content = ''
+
+        return content, embed
+
+        # ??my_info command
+
+    elif text.startswith('.my_info'):
+        info = await get_user_data(user.name)
+
+        embed = Embed(title=f"{user.name}'s Info.", color=0xc8a2c8)
+        embed.set_footer(text=f"BlockSight",
+                         icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
+                                  "1189235897288372244/BSL_Gradient.png")
+
+        max_role = await get_max_role(client, user)
+
+        await update_max_role(user.name, max_role)
+
+        embed.add_field(name=f'Wallet:', value=info['wallet'])
+        embed.add_field(name=f'Max Role:', value=info['max_role'])
+        embed.add_field(name=f'Email:', value=info['email'])
+        embed.add_field(name=f'Twitter:', value=info['twitter'])
+        embed.add_field(name=f'Telegram:', value=info['telegram'])
+        embed.add_field(name="", value='', inline=False)
+        embed.add_field(name=f'Points:', value=f'{info['points']}')
+        embed.add_field(name=f'Referral Code:', value=info['referral_code'])
+        embed.add_field(name=f'Referrals:', value=info['referrals'])
+        embed.add_field(name="", value='', inline=False)
+        embed.add_field(name=f'Credit Balance:', value=info['credits'])
+        embed.add_field(name="", value='', inline=False)
+        embed.add_field(name=f'Current Tier:', value=info['current_plan'])
+        embed.add_field(name=f'Tier Expires In:', value=f'<t:{info['plan_end_date']}:R>')
+
+        return '', embed
+
+
 async def add_user_to_db(username: str, db_path=pg_db_url):
     conn = await asyncpg.connect(db_path)
     try:
         # You could add more fields by modifying the query and the values passed
         await conn.execute(
             """
-            INSERT INTO users (username) VALUES ($1)
+            INSERT INTO users (username, current_plan) VALUES ($1, $2)
             ON CONFLICT (username) DO NOTHING;
             """,
-            username
+            username, 'FREE'
         )
     finally:
         await conn.close()
@@ -44,14 +169,24 @@ async def add_user_to_db(username: str, db_path=pg_db_url):
 async def get_user_data(username: str, db_path=pg_db_url):
     conn = await asyncpg.connect(db_path)  # Connect to the database using the provided database URL
     try:
-        query = 'SELECT * FROM users WHERE username = $1;'
-        user_record = await conn.fetchrow(query, username)
+        # Retrieve the user's record
+        user_query = 'SELECT * FROM users WHERE username = $1;'
+        user_record = await conn.fetchrow(user_query, username)
+
         if user_record:
-            return dict(user_record)
+            # Count referrals based on the user's referral code
+            referrals_query = 'SELECT COUNT(*) FROM users WHERE referral_used = $1;'
+            referrals_count = await conn.fetchval(referrals_query, user_record['referral_code'])
+
+            # Combine user data and referrals count
+            data = dict(user_record)
+            data['referrals'] = referrals_count
+            pprint(data)
+            return data
         else:
             return {}
     finally:
-        await conn.close()  # Ensure the connection is closed after the operation
+        await conn.close()
 
 
 async def get_all_users(db_path=pg_db_url):
@@ -212,7 +347,7 @@ async def use_referral_code(username, code, db_path='pg_db_url'):
                 # Adjust points for both the referrer and the new user
                 if referrer_username:
                     await adjust_points(referrer_username, 300)  # Referrer gets 300 points
-                    await adjust_points(username, 75)           # New user gets 75 points
+                    await adjust_points(username, 75)  # New user gets 75 points
                     return True
 
             return False  # If the operation was not successful

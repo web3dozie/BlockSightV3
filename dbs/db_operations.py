@@ -5,7 +5,7 @@ pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight
 
 async def predict_new_record(model, snapshots):
     # TODO TAKE A BATCH OF SNAPSHOTS AND RETURN A PREDICTED ATH_AFTER VALUE
-    return []
+    pass
 
 
 async def wallet_exists(wallet_address, db_url=pg_db_url):
@@ -23,6 +23,36 @@ async def wallet_exists(wallet_address, db_url=pg_db_url):
             # Prepare and execute the SQL query asynchronously
             query = "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet = $1)"
             exists = await conn.fetchval(query, wallet_address)
+
+            return bool(exists)
+
+        finally:
+            # Ensure the database connection is closed
+            await conn.close()
+
+    except asyncpg.PostgresError as e:
+        print(f"Database error: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return False
+
+
+async def user_exists(username: str, db_url=pg_db_url):
+    """
+    Check if a username exists in the users table asynchronously using PostgreSQL.
+
+    :param db_url: URL to the PostgreSQL database
+    :param username: The username to check
+    :return: True if the username exists, False otherwise
+    """
+    try:
+        # Connect to the PostgreSQL database asynchronously
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            # Prepare and execute the SQL query asynchronously
+            query = "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)"
+            exists = await conn.fetchval(query, username)
 
             return bool(exists)
 
@@ -92,7 +122,6 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
                                        )
         except Exception as e:
             print(f'An error occurred while adding metadata to db: {e}')
-
 
     else:
         # Connect to the PostgreSQL database asynchronously
