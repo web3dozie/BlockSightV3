@@ -1,10 +1,12 @@
 from walletVettingModule.wallet_vetting_utils import process_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
+from telegram import telegram_blueprint
 
 from flask import Flask, request
 
 app = Flask(__name__)
+app.register_blueprint(telegram_blueprint)
 
 
 @app.after_request
