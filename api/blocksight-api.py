@@ -15,12 +15,12 @@ def add_cors_headers(response):
 
 @app.route("/core/analyse-wallet/<wallet_address>")
 async def analyse_wallet(wallet_address):
-    # might add some validation logic here
+    window = request.args.get("window", default=30, type=int)
     try:
-        wallet_summary = await process_wallet(wallet_address)
+        wallet_summary = await process_wallet(wallet_address, window)
         return wallet_summary
-    except Exception:
-        return "Internal Server Error", 500
+    except Exception as e:
+        return f"Internal Server Error: {str(e)}", 5000
 
 
 @app.route("/core/verify-token-mint/<token_mint>")

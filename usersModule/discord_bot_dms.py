@@ -54,9 +54,7 @@ class CompanionBot:
 
                 # Check if the user is in the DB. If not, prompt to sign-up
                 if not await user_exists(user.name):
-                    print('started')
                     await add_user_to_db(user.name)
-                    print('finished adding')
 
                 if self.guild:
                     member = self.guild.get_member(user.id)
@@ -67,13 +65,15 @@ class CompanionBot:
 
                         if role_verified in member.roles:
                             if text.startswith('.help') or text.startswith('.use_code'):
-                                content, embed = await discord_command_executor(text, user, client=self.client)
+                                content, embed = await discord_command_executor(text, user, client=self.client,
+                                                                                message=message)
                                 await message.channel.send(content=content, embed=embed)
 
                             elif role_beta in member.roles:
                                 if text.startswith('.'):
                                     # COMMAND PROCESSING CODE HERE
-                                    content, embed = await discord_command_executor(text, user, client=self.client)
+                                    content, embed = await discord_command_executor(text, user, client=self.client,
+                                                                                    message=message)
                                     await message.channel.send(content=content, embed=embed)
 
                                 else:
@@ -123,6 +123,6 @@ class CompanionBot:
 
 
 async def main():
-    companion_bot = await CompanionBot().client.start(BOT_TOKEN)
+    await CompanionBot().client.start(BOT_TOKEN)
 
 asyncio.run(main())

@@ -101,7 +101,7 @@ async def assign_role(client, user: discord.User, role_id: int):
         return 0
 
 
-async def discord_command_executor(text: str, user: discord.User, client: discord.Client):
+async def discord_command_executor(text: str, user: discord.User, client: discord.Client, message: discord.Message):
     """
         This function executes commands and returns responses for sending
         :param client:
@@ -315,13 +315,32 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         split_text = text.split()
         data_to_scan = split_text[1]
 
+        scan_embed = Embed(color=0xc8a2c8, title=f'Starting scan for {data_to_scan[0:5]}...',
+                           description='Please be patient')
+        scan_embed.set_footer(text=f"BlockSight",
+                              icon_url="https://cdn.discordapp.com/attachments/"
+                                       "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+
+        # TODO decrease credits by 10
+
         if is_valid_wallet(data_to_scan):
-            print('STARTING ANALYSIS')
+            scan_message = await message.channel.send(content='', embed=scan_embed)
+            # TODO check if wallet exists in db, if it is new increase points by 10
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{blocksight_api}/core/analyse-wallet/{data_to_scan}") as response:
                     if response.status == 200:
                         result = await response.json()
                         summary = result.get("result")
+
+                        data = {'avg_size': 807.06,
+                                'last_checked': 1713531556,
+                                'pnl': 2191.04,
+                                'trades': 5,
+                                'wallet': '3AL3N6WgbyMX8XpAV7TSJrHdDxQNDX7R1j5neXVAQVxA',
+                                'win_rate': 0.0,
+                                'window_value': '30d'}
+
+
                     else:
                         print(f"Failed to analyse wallet {data_to_scan}. Status code: {response.status}")
 
@@ -332,8 +351,6 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         else:
             # INVALID INPUT
             pass
-
-
 
     else:
         bad_command_embed = Embed(color=0xc8a2c8, title='Invalid Command',
