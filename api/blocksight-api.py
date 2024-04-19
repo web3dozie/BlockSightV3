@@ -6,8 +6,10 @@ from telegram import telegram_blueprint
 from flask import Flask, request
 
 app = Flask(__name__)
-app.register_blueprint(telegram_blueprint)
 
+'''
+app.register_blueprint(telegram_blueprint)
+'''
 
 @app.after_request
 def add_cors_headers(response):

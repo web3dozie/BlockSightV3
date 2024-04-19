@@ -67,7 +67,7 @@ def deduplicate_transactions(transactions: list) -> list:
     return deduped
 
 
-def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: float) -> dict:
+def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: float, window=30) -> dict:
     """
     Determine the grade of a wallet based on its trading performance metrics.
 
@@ -80,6 +80,24 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
     Returns:
         dict: A dictionary containing the overall grade and individual grades for each metric.
     """
+    # Define thresholds for each category
+    win_rate_thresholds = {'S': 25, 'A': 20, 'B': 15, 'C': 10, 'F': 10}
+    size_thresholds = {'S': 2000, 'A': 1000, 'B': 500, 'C': 200, 'F': 200}
+
+    print('THRESHOLDS DEFINED')
+
+    if window == 30:
+        trades_thresholds = {'S': 100, 'A': 75, 'B': 50, 'C': 20, 'F': 20}
+        pnl_thresholds = {'S': 25000, 'A': 10000, 'B': 2500, 'C': 1000, 'F': 1000}
+    elif window == 7:
+        trades_thresholds = {'S': 100/4, 'A': 75/4, 'B': 50/4, 'C': 20/4, 'F': 20/4}
+        pnl_thresholds = {'S': 25000/4, 'A': 10000/4, 'B': 2500/4, 'C': 1000/4, 'F': 1000/4}
+    else:
+        trades_thresholds = {'S': 100/30, 'A': 75/30, 'B': 50/30, 'C': 20/30, 'F': 20/30}
+        pnl_thresholds = {'S': 25000/30, 'A': 10000/30, 'B': 2500/30, 'C': 1000/30, 'F': 1000/30}
+
+    print('THRESHOLDS FINALIZED')
+
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
         if value >= thresholds['S']:
@@ -91,19 +109,21 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
         elif value >= thresholds['C']:
             return 5
         else:
-            return 0
+            return 0.0
 
-    # Define thresholds for each category
-    win_rate_thresholds = {'S': 25, 'A': 20, 'B': 15, 'C': 10, 'F': 10}
-    trades_thresholds = {'S': 100, 'A': 75, 'B': 50, 'C': 20, 'F': 20}
-    size_thresholds = {'S': 2000, 'A': 1000, 'B': 500, 'C': 200, 'F': 200}
-    pnl_thresholds = {'S': 25000, 'A': 10000, 'B': 2500, 'C': 1000, 'F': 1000}
+    print(f'win_rate: {win_rate}\nwin_rate_thresholds: {win_rate_thresholds}')
 
     # Calculate points for each category
     win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
+    print('WR DONE')
     trades_points = get_points(trades, trades_thresholds)
+    print('TRADES DONE')
     size_points = get_points(avg_size, size_thresholds)
+    print('SIZE DONE')
     pnl_points = get_points(pnl, pnl_thresholds)
+    print('PNL DONE')
+
+    print('POINTS FINALIZED')
 
     # Calculate overall points
     overall_points = win_rate_points + trades_points + size_points + pnl_points
@@ -123,6 +143,8 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
 
     if pnl < pnl_thresholds['F']:
         overall_points -= 15
+
+    print('POINTS ADJUSTED')
 
     # Determine overall tier
     if overall_points >= 115:
@@ -157,14 +179,110 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
         else:
             return 'F'
 
+    print('DONE WITH GRADES')
     # Return results
     return {
-        "overall": overall_tier,
-        "win_rate": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
-        "trades": get_tier(trades_points),
-        "size": get_tier(size_points),
-        "pnl": get_tier(pnl_points)
+        "overall_grade": overall_tier,
+        "win_rate_grade": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
+        "trades_grade": get_tier(trades_points),
+        "size_grade": get_tier(size_points),
+        "pnl_grade": get_tier(pnl_points)
     }
+
+
+def generate_trader_message(data):
+    grade = data['overall_grade']
+    pnl = data['pnl_grade']
+    frequency = data['trades_grade']
+    win_rate = data['win_rate_grade']
+    avg_size = data['avg_size_grade']
+
+    # Define your message categories
+    if grade in ['SS', 'S'] and avg_size in ['S', 'A'] and frequency in ['S', 'A']:
+        return ("The Solana market's VIP! A trading juggernaut, splashing around big bets like a "
+                "celebrity at a Vegas pool party. Who the fuck are you and why are you so good at everything?")
+
+    elif grade in ['B', 'C'] and avg_size in ['C', 'F'] and win_rate in ['S', 'A']:
+        return ("The scrappy underdog! Not the flashiest wallet in the room, "
+                "but you’ve got a golden touch. Like a ninja in a bank vault, making each move count.")
+
+    elif grade in ['C', 'F'] and avg_size in ['B', 'C'] and pnl in ['C', 'F']:
+        return "You're trash, Get a life off your screen"
+
+    elif grade in ['SS', 'S'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return ("The silent assassin! With a portfolio stealthier than a cat burglar, "
+                "you’re raking in consistent wins. Small, sneaky, and successful.")
+
+    elif grade in ['A', 'B+'] and avg_size in ['S', 'A'] and pnl in ['C', 'F']:
+        return ("The bold gambler, throwing around SOL like it’s confetti at a New Year’s party."
+                " Sure, it’s a bit of a coin flip, but who doesn't love a bit of drama?")
+
+    elif grade in ['S', 'A'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return ("The sniper, picking off wins with surgical precision. You might not be making it rain,"
+                " but your steady hand is writing a success story one trade at a time.")
+
+    elif grade in ['B', 'C'] and frequency in ['S', 'A'] and avg_size in ['B', 'C']:
+        return ("Busy as a bee, buzzing from one trade to the next. Not the biggest player on the field,"
+                " but definitely one of the most energetic. Go, Speed Racer, go!")
+
+    elif grade in ['A'] and frequency in ['S', 'A'] and avg_size in ['S', 'A']:
+        return ("The celebrity trader! Flashy, frequent, and fabulously wealthy. "
+                "You’re not just in the market, you ARE the market. Autographs, please?")
+
+    elif grade in ['F'] and frequency in ['C', 'F'] and avg_size in ['C', 'F']:
+        return "Shit Shit Shit -- Your wallet is a waste of good SOL. Fuck Off."
+
+    elif grade in ['C'] and frequency in ['C', 'F'] and pnl in ['C', 'F']:
+        return "While you aren't total trash, Stop trading. You're NGMI."
+
+    elif grade in ['A', 'B+'] and frequency in ['B', 'C'] and avg_size in ['B', 'C']:
+        return "You're okay, I guess."
+
+    elif grade in ['A', 'B'] and avg_size in ['S', 'A'] and pnl in ['S', 'A']:
+        return ("The steady giant, moving through the market like a wise old elephant. "
+                "Big, sure, but with a grace that keeps the wins coming. Slow and steady wins the race!")
+
+    elif grade in ['S', 'A'] and frequency in ['B', 'C'] and avg_size in ['B', 'C']:
+        return ("You're the Solana market's all-rounder. Not too hot, not too cold – just right. "
+                "Like the Goldilocks of trading, but with a sharper suit.")
+
+    elif grade in ['C', 'F'] and pnl in ['F'] and frequency in ['S', 'A']:
+        return "You are a professional -- AT LOSING MONEY HA!"
+
+    elif grade in ['C', 'F'] and avg_size in ['S', 'A'] and frequency in ['C', 'F']:
+        return "Traders like you pay my bills"
+
+    elif grade in ['SS', 'S', 'A'] and pnl in ['S', 'A'] and avg_size in ['C', 'F']:
+        return ("The silent winner, sneaking in wins like a ninja in the night. "
+                "Small in size, but colossal in impact. Who says you need to shout to be heard?")
+
+    elif grade in ['SS', 'S'] and frequency in ['S', 'A'] and pnl in ['C', 'F']:
+        return ("The speed demon with a penchant for danger! Racing through trades like a "
+                "Formula 1 driver. Fast, furious, and living on the edge!")
+
+    elif grade in ['A', 'B+'] and frequency in ['C', 'F'] and avg_size in ['B', 'C']:
+        return ("The casual trader, strolling through the Solana market like it’s a "
+                "Sunday walk in the park. Not too rushed, enjoying the scenery, making moves at a leisurely pace.")
+
+    elif grade in ['C', 'F'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return "Schrodinger's Degen - You're shit but you make money? Teach me ser."
+
+    elif grade in ['B+', 'A'] and avg_size in ['A', 'B'] and pnl in ['A', 'B'] and win_rate in ['B', 'C']:
+        return "You're quite profitable, but you should buy dumb shit less often."
+
+    elif grade in ['S', 'A'] and avg_size in ['A', 'B', 'C'] and pnl in ['A', 'S'] and win_rate in ['S']:
+        return "Who are you and why is your wallet so sexy?"
+
+    elif grade in ['S'] and avg_size in ['S'] and pnl in ['S'] and win_rate in ['S'] and frequency in ['B', 'C', 'F']:
+        return "What a degen, talk about conviction trades."
+
+    elif (grade in ['B+', 'B', 'C'] and avg_size in ['B', 'C'] and pnl in ['F'] and win_rate in ['S'] and
+          frequency in ['S']):
+        return "You're good at a few things, but you aren't making money. Get good or get out."
+    else:
+        # Default message for unclassified scenarios
+        return random.choice(["Hmm", "What do we have here?", "Weird..", "The voices, make them stoppp",
+                              "I just bought a used car"])
 
 
 async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111111112') -> float:
