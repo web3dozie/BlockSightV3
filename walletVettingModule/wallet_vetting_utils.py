@@ -67,7 +67,7 @@ def deduplicate_transactions(transactions: list) -> list:
     return deduped
 
 
-def determine_grade(trades: int, win_rate: float, avg_size: float, pnl: float) -> dict:
+def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: float) -> dict:
     """
     Determine the grade of a wallet based on its trading performance metrics.
 

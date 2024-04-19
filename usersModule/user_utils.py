@@ -332,6 +332,8 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         if is_valid_wallet(data_to_scan):
             scan_message = await message.channel.send(content='', embed=scan_embed)
 
+            grades = determine_wallet_grade()
+
             def make_wallet_scan_embed(wallet_data):
                 wallet_data = {'avg_size': 807.06,
                                'last_checked': 1713531556,
@@ -340,6 +342,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                                'wallet': '3AL3N6WgbyMX8XpAV7TSJrHdDxQNDX7R1j5neXVAQVxA',
                                'win_rate': 0.0,
                                'window_value': '30d'}
+
 
                 grade = ''
 
