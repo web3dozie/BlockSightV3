@@ -1,16 +1,13 @@
 """
 PRIMARY LOGIN METHOD WILL BE VIA A DISCORD ACCOUNT
 """
-import random
-import re
-import time
-from datetime import datetime
+import random, re, asyncpg, discord
+
 from pprint import pprint
 
-import asyncpg
-import discord
-
+import aiohttp
 from discord import Embed
+from datetime import datetime
 from walletVettingModule.wallet_vetting_utils import is_valid_wallet
 
 BLOCKSIGHT_SERVER_ID = 1101255371210887258
@@ -19,6 +16,7 @@ BETA_ROLE = 1184124534366933143
 BETA_PRIME_ROLE = 1192053087586762803
 HONORARY_ROLE = 1184125377124257842
 
+blocksight_api = "http://localhost:5000"
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
 
 
@@ -63,8 +61,44 @@ async def update_max_role(username: str, role: str, db_path: str = pg_db_url):
         await conn.close()
 
 
-async def assign_role():
-    pass
+async def assign_role(client, user: discord.User, role_id: int):
+    """
+    Assigns a role to a user in a specified guild.
+
+    Parameters:
+    - client: The discord.py client or bot instance.
+    - user: discord.User object representing the user to whom the role will be assigned.
+    - role_id: The ID of the role to assign to the user.
+    """
+
+    guild_id = 1101255371210887258
+
+    # Get the guild object using the guild ID
+    guild = client.get_guild(guild_id)
+    if guild is None:
+        print(f"Guild with ID {guild_id} not found.")
+        return 0
+
+    # Get the member object from the user ID
+    member = guild.get_member(user.id)
+    if member is None:
+        print(f"User {user} is not a member of guild {guild_id}.")
+        return 0
+
+    # Get the role object using the role ID
+    role = guild.get_role(role_id)
+    if role is None:
+        print(f"Role with ID {role_id} not found in guild {guild_id}.")
+        return 0
+
+    # Assign the role to the user
+    try:
+        await member.add_roles(role)
+        print(f"Successfully assigned role {role.name} to user {user.name}.")
+        return 1
+    except discord.HTTPException as e:
+        print(f"Failed to assign role: {e}")
+        return 0
 
 
 async def discord_command_executor(text: str, user: discord.User, client: discord.Client):
@@ -232,6 +266,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         def success_embed(val_embed, code_, valid):
             if valid:
                 val_embed.title = f'Successfully used code: {code_}'
+                val_embed.description = f'You now have full beta access to BlockSight\'s tools'
                 val_embed.set_footer(text=f"BlockSight",
                                      icon_url="https://cdn.discordapp.com/attachments/1184131101782970398/"
                                               "1189235897288372244/BSL_Gradient.png")
@@ -244,7 +279,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
         use_code_embed = Embed(color=0xc8a2c8)
 
-        successful = await use_referral_code(user.name, code)
+        successful = await use_referral_code(user, code, client)
 
         use_code_embed = success_embed(use_code_embed, code, successful)
 
@@ -275,6 +310,30 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         create_code_embed = success_embed(create_code_embed, code, successful)
 
         return '', create_code_embed
+
+    elif text.startswith('.scan '):
+        split_text = text.split()
+        data_to_scan = split_text[1]
+
+        if is_valid_wallet(data_to_scan):
+            print('STARTING ANALYSIS')
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{blocksight_api}/core/analyse-wallet/{data_to_scan}") as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        summary = result.get("result")
+                    else:
+                        print(f"Failed to analyse wallet {data_to_scan}. Status code: {response.status}")
+
+            pprint(summary)
+        elif data_to_scan.startswith('@'):
+            # TG CODE
+            pass
+        else:
+            # INVALID INPUT
+            pass
+
+
 
     else:
         bad_command_embed = Embed(color=0xc8a2c8, title='Invalid Command',
@@ -443,6 +502,8 @@ async def create_referral_code(username, code, db_path=pg_db_url):
     if len(code) < 3 or len(code) > 15:
         return False  # Return False - Code is too short or too long
 
+    username = username.upper()
+
     conn = await asyncpg.connect(db_path)  # Connect to the database
     try:
         # Prepare the query to update the referral_code column only if it is currently NULL
@@ -465,7 +526,7 @@ async def create_referral_code(username, code, db_path=pg_db_url):
         await conn.close()
 
 
-async def use_referral_code(username, code, db_path=pg_db_url):
+async def use_referral_code(user: discord.User, code, client: discord.Client, db_path=pg_db_url):
     conn = await asyncpg.connect(db_path)
     try:
         # Start a transaction
@@ -481,7 +542,7 @@ async def use_referral_code(username, code, db_path=pg_db_url):
             RETURNING username;
             '''
 
-            result = await conn.fetchval(update_query, code, username)
+            result = await conn.fetchval(update_query, code, user.name)
 
             # If the referral code was used successfully
             if result:
@@ -492,7 +553,10 @@ async def use_referral_code(username, code, db_path=pg_db_url):
                 # Adjust points for both the referrer and the new user
                 if referrer_username:
                     await adjust_points(referrer_username, 300)  # Referrer gets 300 points
-                    await adjust_points(username, 75)  # New user gets 75 points
+                    await adjust_points(user.name, 75)  # New user gets 75 points
+
+                    await assign_role(client, user, BETA_ROLE)
+
                     return True
 
             return False  # If the operation was not successful
