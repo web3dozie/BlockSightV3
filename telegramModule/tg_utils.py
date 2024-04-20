@@ -14,7 +14,7 @@ dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
 
 
-async def get_userid_from_tg_id(tg_id:int, db_url:str=blocksight_db_url) -> str|None:
+async def get_userid_from_tg_id(tg_id: int, db_url: str = blocksight_db_url) -> str | None:
     query = "select user_id from users where telegram_id = $1"
 
     try:
@@ -23,13 +23,14 @@ async def get_userid_from_tg_id(tg_id:int, db_url:str=blocksight_db_url) -> str|
     except Exception as e:
         print(f"Error {e} while getting username for tg id {tg_id}")
         raise e
-    
+
     if not userid:
         return None
     else:
         return userid
-    
-async def is_user_verified(userid:int) -> bool:
+
+
+async def is_user_verified(userid: int) -> bool:
     intents = discord.Intents.default()
     intents.guilds = True
     intents.members = True
@@ -49,7 +50,7 @@ async def is_user_verified(userid:int) -> bool:
             return False
     finally:
         await client.close()
-   
-    
+
+
 if __name__ == "__main__":
     print(asyncio.run(is_user_verified(394387083189288961)))
