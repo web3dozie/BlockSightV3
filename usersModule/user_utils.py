@@ -8,6 +8,8 @@ from pprint import pprint
 import aiohttp
 from discord import Embed
 from datetime import datetime
+
+from dbs.db_operations import wallet_exists
 from walletVettingModule.wallet_vetting_utils import is_valid_wallet, determine_wallet_grade, generate_trader_message
 
 BLOCKSIGHT_SERVER_ID = 1101255371210887258
@@ -313,13 +315,13 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
     elif text.startswith('.scan '):
         split_text = text.split()
-        data_to_scan = split_text[2]
-        try:
-            window = int(split_text[1])
-            if window not in [1, 7, 30]:
-                raise KeyError
-        except KeyError:
+
+        if len(split_text) == 2:
+            data_to_scan = split_text[1]
             window = 30
+        else:
+            data_to_scan = split_text[2]
+            window = split_text[1]
 
         scan_embed = Embed(color=0xc8a2c8, title=f'Starting scan for {data_to_scan[0:5]}...',
                            description='Please be patient')
@@ -327,40 +329,40 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                               icon_url="https://cdn.discordapp.com/attachments/"
                                        "1184131101782970398/1189235897288372244/BSL_Gradient.png")
 
-        # TODO decrease credits by 10
+        await adjust_credits(user.name, 5)
 
         if is_valid_wallet(data_to_scan):
             scan_message = await message.channel.send(content='', embed=scan_embed)
 
             def make_wallet_scan_embed(wallet_data):
-
-                print('WALLET SCAN EMBED STARTED')
-
-                grades = determine_wallet_grade(wallet_data['trades'], wallet_data['win_rate'], wallet_data['avg_size'],
-                                                wallet_data['pnl'], window=window)
-
-                print('GRADES')
-                pprint(grades)
-
-
-
+                grades = determine_wallet_grade(wallet_data['trades'], float(wallet_data['win_rate']),
+                                                float(wallet_data['avg_size']), float(wallet_data['pnl']),
+                                                window=window)
 
                 wallet_scan_embed = Embed(color=0xc8a2c8, title=f"{wallet_data['wallet'][0:7]}...'s  {window}D Summary",
                                           description='In-Depth Breakdown')
-
-                wallet_scan_embed.add_field(name=f'Overall Rank: {grades['overall_grade']}',
-                                            value=f'{generate_trader_message(wallet_data)}')
-                wallet_scan_embed.add_field(name="", value='', inline=False)
+                try:
+                    print(grades['overall_grade'])
+                    wallet_scan_embed.add_field(name=f'Overall Rank: {grades['overall_grade']}',
+                                                value=f'{generate_trader_message(grades)}')
+                    wallet_scan_embed.add_field(name="", value='', inline=False)
+                except Exception as e:
+                    print(e)
+                    raise e
 
                 wallet_scan_embed.add_field(name=f'Trading Frequency: ({grades['trades_grade']})',
-                                            value=f'{round((wallet_data['trades'] / 30), 2)} trades per day')
+                                            value=f'{round((wallet_data['trades'] / window), 2)} trades per day')
 
                 wallet_scan_embed.add_field(name=f'Win Rate: {grades['win_rate_grade']}',
                                             value=f'{wallet_data['win_rate']}% '
                                                   f'(hit 2.5x in 4 days or less)')
 
-                wallet_scan_embed.add_field(name=f'Average Size: {grades['avg_size_grade']}',
-                                            value=f'Apes {round((wallet_data['avg_size']), 2)}$ per trade ')
+                try:
+                    wallet_scan_embed.add_field(name=f'Average Size: {grades['size_grade']}',
+                                                value=f'Apes {round((float(wallet_data['avg_size'])), 2)}$ per trade ')
+                except Exception as e:
+                    print(e)
+                    raise e
 
                 wallet_scan_embed.add_field(name=f'PnL: {grades['pnl_grade']}',
                                             value=f'Realized {wallet_data['pnl']}$ in the last {window} days')
@@ -374,7 +376,9 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
                 return wallet_scan_embed
 
-            # TODO check if wallet exists in db, if it is new increase points by 10
+            if await wallet_exists(data_to_scan):
+                await adjust_points(user.name, 20)
+
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{blocksight_api}/core/analyse-wallet/{data_to_scan}",
                                        params={'window': window}) as response:
@@ -383,24 +387,36 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
                         pprint(summary)
 
-                        print('STARTING TO MAKE EMBED')
                         scan_embed = make_wallet_scan_embed(summary)
-                        print('EMBED MADE')
-
                         await scan_message.edit(embed=scan_embed)
-                        print('FINISHED EDITING')
+
+                        if not summary:
+                            scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan[0:7]}...',
+                                               description='Please try another wallet')
+
+                            scan_embed.set_footer(text=f"BlockSight",
+                                                  icon_url="https://cdn.discordapp.com/attachments/"
+                                                           "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+
+                            await scan_message.edit(embed=scan_embed)
 
                     else:
                         scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan[0:7]}...',
                                            description='Please try another wallet')
+
                         scan_embed.set_footer(text=f"BlockSight",
                                               icon_url="https://cdn.discordapp.com/attachments/"
                                                        "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+
                         await scan_message.edit(embed=scan_embed)
 
         elif data_to_scan.startswith('@'):
-            # TG CODE
-            pass
+            data_to_scan = data_to_scan[1:]
+            # TODO Integrate API for TG
+
+
+
+
         else:
             # INVALID INPUT
             pass

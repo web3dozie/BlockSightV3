@@ -10,6 +10,7 @@ Should return a dict like this: {
   registered: True
 }
 """
+
 @telegram_blueprint.route('/check-id/<telegram_id>')
 async def check_id(telegram_id):
   if not telegram_id:
@@ -22,11 +23,9 @@ async def check_id(telegram_id):
       return {"registered": False, "verified": False}
     
     verified = await is_user_verified(userid)
-    if verified:
-      return {"registered": True, "verified": True}
-    else:
-      return {"registered": True, "verified": False}
-    
+
+    return {"registered": True, "verified": verified}
+
   except Exception as e:
     print(f"Error {e} while checking if id {telegram_id} is registered/verified")
     return "Internal Server Error", 500

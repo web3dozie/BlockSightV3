@@ -90,38 +90,54 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
         trades_thresholds = {'S': 100, 'A': 75, 'B': 50, 'C': 20, 'F': 20}
         pnl_thresholds = {'S': 25000, 'A': 10000, 'B': 2500, 'C': 1000, 'F': 1000}
     elif window == 7:
-        trades_thresholds = {'S': 100/4, 'A': 75/4, 'B': 50/4, 'C': 20/4, 'F': 20/4}
-        pnl_thresholds = {'S': 25000/4, 'A': 10000/4, 'B': 2500/4, 'C': 1000/4, 'F': 1000/4}
+        trades_thresholds = {'S': 100 / 4, 'A': 75 / 4, 'B': 50 / 4, 'C': 20 / 4, 'F': 20 / 4}
+        pnl_thresholds = {'S': 25000 / 4, 'A': 10000 / 4, 'B': 2500 / 4, 'C': 1000 / 4, 'F': 1000 / 4}
     else:
-        trades_thresholds = {'S': 100/30, 'A': 75/30, 'B': 50/30, 'C': 20/30, 'F': 20/30}
-        pnl_thresholds = {'S': 25000/30, 'A': 10000/30, 'B': 2500/30, 'C': 1000/30, 'F': 1000/30}
+        trades_thresholds = {'S': 100 / 30, 'A': 75 / 30, 'B': 50 / 30, 'C': 20 / 30, 'F': 20 / 30}
+        pnl_thresholds = {'S': 30000 / 30, 'A': 15000 / 30, 'B': 5000 / 30, 'C': 2500 / 30, 'F': 1000 / 30}
 
     print('THRESHOLDS FINALIZED')
 
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
-        if value >= thresholds['S']:
-            return 25
-        elif value >= thresholds['A']:
-            return 15
-        elif value >= thresholds['B']:
-            return 10
-        elif value >= thresholds['C']:
-            return 5
-        else:
-            return 0.0
+        print('I STARTED')
+        try:
+            if value >= thresholds['S']:
+                print('S')
+                return 25
+            elif value >= thresholds['A']:
+                print('A')
+                return 15
+            elif value >= thresholds['B']:
+                print('B')
+                return 10
+            elif value >= thresholds['C']:
+                print('C')
+                return 5
+            else:
+                print('F')
+                return 1
+        except Exception as e:
+            print(e)
+            raise e
 
-    print(f'win_rate: {win_rate}\nwin_rate_thresholds: {win_rate_thresholds}')
+    print(f'win_rate: {type(win_rate)}\nwin_rate_thresholds: {win_rate_thresholds}')
 
-    # Calculate points for each category
-    win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
-    print('WR DONE')
-    trades_points = get_points(trades, trades_thresholds)
-    print('TRADES DONE')
-    size_points = get_points(avg_size, size_thresholds)
-    print('SIZE DONE')
-    pnl_points = get_points(pnl, pnl_thresholds)
-    print('PNL DONE')
+    # -------------------------------------------------- #
+    def help_me():
+        # Calculate points for each category
+        win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
+        print('WR DONE')
+        trades_points = get_points(trades, trades_thresholds)
+        print('TRADES DONE')
+        size_points = get_points(avg_size, size_thresholds)
+        print('SIZE DONE')
+        pnl_points = get_points(pnl, pnl_thresholds)
+        print('PNL DONE')
+
+        return win_rate_points, trades_points, size_points, pnl_points
+
+    win_rate_points, trades_points, size_points, pnl_points = help_me()
 
     print('POINTS FINALIZED')
 
@@ -191,11 +207,15 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
 
 
 def generate_trader_message(data):
+    print('GENERATE TRADER MESSAGE STARTS')
+
     grade = data['overall_grade']
     pnl = data['pnl_grade']
     frequency = data['trades_grade']
     win_rate = data['win_rate_grade']
-    avg_size = data['avg_size_grade']
+    avg_size = data['size_grade']
+
+    print('DONE LOADING')
 
     # Define your message categories
     if grade in ['SS', 'S'] and avg_size in ['S', 'A'] and frequency in ['S', 'A']:
@@ -741,7 +761,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
         retries = 0
         while retries < max_retries:
             try:
-                await asyncio.sleep(random.randint(3,20)) # trying to avoid 429's
+                await asyncio.sleep(random.randint(3, 20))  # trying to avoid 429's
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as response:
                         if response.status == 200:
@@ -753,7 +773,8 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
                             for tx in tx_data_batch:
 
-                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
+                                if last_db_tx_timestamp and tx[
+                                    'timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
                                     continue
                                 tx_data.append(tx)
 
@@ -794,10 +815,10 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
         swap_txs = await parse_for_swaps(tx_data)  # No I/O in here
 
         swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
-                        tx['timestamp']) for tx in swap_txs]
+                            tx['timestamp']) for tx in swap_txs]
         swap_txs_tuples = set(swap_txs_tuples)
     try:
-    # Inserting new swap transactions into the database
+        # Inserting new swap transactions into the database
         if swap_txs_tuples:  # TODO I/O -> Check later for improvable parts.
             # await conn.executemany(
             #     "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
@@ -813,10 +834,11 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
         query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
 
-        rows = await conn.fetch(query, wallet, start_time, end_time)  # TODO -> Some I/O here check later for improvements
+        rows = await conn.fetch(query, wallet, start_time,
+                                end_time)  # TODO -> Some I/O here check later for improvements
         swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
-    
+
     except Exception as e:
         print(f"Error {e} while running db insertion/retrieval operations for wallet {wallet}.")
         await conn.close()
@@ -828,6 +850,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
 async def parse_for_swaps(tx_data):
     txs = []
+
     async def wrapper(tx):
         str_val = str(tx)
         substrings = ('NonFungible', 'TENSOR', "'ProgrammableNFT'", 'FLiPggWYQyKVTULFWMQjAk26JfK5XRCajfyTmD5weaZ7')
@@ -844,6 +867,7 @@ async def parse_for_swaps(tx_data):
     txs = await asyncio.gather(*tasks)
     txs = [tx for tx in txs if tx]
     return txs
+
 
 if __name__ == '__main__':
     asyncio.run(process_wallet('98HgTyeHTp18q32RHiZtjXKbumZoC8JThrG31YkXLQeV'))
