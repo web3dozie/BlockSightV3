@@ -1,19 +1,31 @@
 from flask import Blueprint
-from telegramModule.tg_utils import get_username_from_tg_id
+from telegramModule.tg_utils import get_userid_from_tg_id, is_user_verified
 
 telegram_blueprint = Blueprint('telegram', __name__)
 
-@telegram_blueprint.route('/is-id-registered/<telegram-id>')
+"""
+Should return a dict like this: {
+  verified: True,
+  registered: True
+}
+"""
+@telegram_blueprint.route('/check-id/<telegram_id>')
 async def check_id(telegram_id):
   if not telegram_id:
     return "Bad request", 400
   
   retv = False
   try:
-    username = await get_username_from_tg_id(telegram_id)
-    if not username:
-      return {"result": False}
+    userid = await get_userid_from_tg_id(telegram_id)
+    if not userid:
+      return {"registered": False, "verified": False}
+    
+    verified = await is_user_verified(userid)
+    if verified:
+      return {"registered": True, "verified": True}
     else:
-      return {"result": True}
+      return {"registered": True, "verified": False}
+    
   except Exception as e:
-    return f"Error {e} while checking if id {telegram_id} is registered"
+    print(f"Error {e} while checking if id {telegram_id} is registered/verified")
+    return "Internal Server Error", 500

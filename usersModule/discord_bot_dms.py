@@ -125,4 +125,5 @@ class CompanionBot:
 async def main():
     await CompanionBot().client.start(BOT_TOKEN)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,12 +1,13 @@
 from walletVettingModule.wallet_vetting_utils import process_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
+from telegramModule.vet_tg_channel import vetChannel
 from telegram import telegram_blueprint
 
-from flask import Flask, request
+from flask import Flask, request, jsonify, make_response
 
 app = Flask(__name__)
-app.register_blueprint(telegram_blueprint)
+app.register_blueprint(telegram_blueprint, url_prefix="/telegram")
 
 
 @app.after_request
@@ -28,6 +29,8 @@ async def analyse_wallet(wallet_address):
 @app.route("/core/verify-token-mint/<token_mint>")
 async def verify_token_mint(token_mint):
     # might add some validation logic here
+    if not token_mint:
+        return "bad request", 400
     try:
         token_data = await get_data_from_helius(token_mint)
         if token_data:
@@ -52,6 +55,19 @@ async def api_is_win_trade():
         except Exception as e:
             print(f"Error while checking trade {e}")
             return "Internal Server Error", 500
+
+@app.route("/core/vet-tg-channel/<tg_channel>")
+async def vet_channel(tg_channel):
+    if not tg_channel:
+        return "bad request", 400
+    
+    try:
+        retv = await vetChannel(tg_channel)
+        return {"win_rate": retv[0], "trade_count": retv[1]}
+    except Exception as e:
+        print(f"Error while vetting channel {tg_channel}")
+        return make_response(jsonify({"status":"Internal Server Error", "message":str(e)}), 500)
+
 
 
 if __name__ == '__main__':
