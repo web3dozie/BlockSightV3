@@ -8,7 +8,7 @@ from pprint import pprint
 import aiohttp
 from discord import Embed
 from datetime import datetime
-from walletVettingModule.wallet_vetting_utils import is_valid_wallet
+from walletVettingModule.wallet_vetting_utils import is_valid_wallet, determine_wallet_grade, generate_trader_message
 
 BLOCKSIGHT_SERVER_ID = 1101255371210887258
 VERIFIED_ROLE = 1200907085320294460
@@ -313,7 +313,13 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
     elif text.startswith('.scan '):
         split_text = text.split()
-        data_to_scan = split_text[1]
+        data_to_scan = split_text[2]
+        try:
+            window = int(split_text[1])
+            if window not in [1, 7, 30]:
+                raise KeyError
+        except KeyError:
+            window = 30
 
         scan_embed = Embed(color=0xc8a2c8, title=f'Starting scan for {data_to_scan[0:5]}...',
                            description='Please be patient')
@@ -325,26 +331,73 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
         if is_valid_wallet(data_to_scan):
             scan_message = await message.channel.send(content='', embed=scan_embed)
+
+            def make_wallet_scan_embed(wallet_data):
+
+                print('WALLET SCAN EMBED STARTED')
+
+                grades = determine_wallet_grade(wallet_data['trades'], wallet_data['win_rate'], wallet_data['avg_size'],
+                                                wallet_data['pnl'], window=window)
+
+                print('GRADES')
+                pprint(grades)
+
+
+
+
+                wallet_scan_embed = Embed(color=0xc8a2c8, title=f"{wallet_data['wallet'][0:7]}...'s  {window}D Summary",
+                                          description='In-Depth Breakdown')
+
+                wallet_scan_embed.add_field(name=f'Overall Rank: {grades['overall_grade']}',
+                                            value=f'{generate_trader_message(wallet_data)}')
+                wallet_scan_embed.add_field(name="", value='', inline=False)
+
+                wallet_scan_embed.add_field(name=f'Trading Frequency: ({grades['trades_grade']})',
+                                            value=f'{round((wallet_data['trades'] / 30), 2)} trades per day')
+
+                wallet_scan_embed.add_field(name=f'Win Rate: {grades['win_rate_grade']}',
+                                            value=f'{wallet_data['win_rate']}% '
+                                                  f'(hit 2.5x in 4 days or less)')
+
+                wallet_scan_embed.add_field(name=f'Average Size: {grades['avg_size_grade']}',
+                                            value=f'Apes {round((wallet_data['avg_size']), 2)}$ per trade ')
+
+                wallet_scan_embed.add_field(name=f'PnL: {grades['pnl_grade']}',
+                                            value=f'Realized {wallet_data['pnl']}$ in the last {window} days')
+
+                wallet_scan_embed.add_field(name=f'Last updated:',
+                                            value=f'{f'<t:{wallet_data['last_checked']}:R>'}')
+
+                wallet_scan_embed.set_footer(text=f"BlockSight",
+                                             icon_url="https://cdn.discordapp.com/attachments/"
+                                                      "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+
+                return wallet_scan_embed
+
             # TODO check if wallet exists in db, if it is new increase points by 10
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{blocksight_api}/core/analyse-wallet/{data_to_scan}") as response:
+                async with session.get(f"{blocksight_api}/core/analyse-wallet/{data_to_scan}",
+                                       params={'window': window}) as response:
                     if response.status == 200:
-                        result = await response.json()
-                        summary = result.get("result")
+                        summary = await response.json()
 
-                        data = {'avg_size': 807.06,
-                                'last_checked': 1713531556,
-                                'pnl': 2191.04,
-                                'trades': 5,
-                                'wallet': '3AL3N6WgbyMX8XpAV7TSJrHdDxQNDX7R1j5neXVAQVxA',
-                                'win_rate': 0.0,
-                                'window_value': '30d'}
+                        pprint(summary)
 
+                        print('STARTING TO MAKE EMBED')
+                        scan_embed = make_wallet_scan_embed(summary)
+                        print('EMBED MADE')
+
+                        await scan_message.edit(embed=scan_embed)
+                        print('FINISHED EDITING')
 
                     else:
-                        print(f"Failed to analyse wallet {data_to_scan}. Status code: {response.status}")
+                        scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan[0:7]}...',
+                                           description='Please try another wallet')
+                        scan_embed.set_footer(text=f"BlockSight",
+                                              icon_url="https://cdn.discordapp.com/attachments/"
+                                                       "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+                        await scan_message.edit(embed=scan_embed)
 
-            pprint(summary)
         elif data_to_scan.startswith('@'):
             # TG CODE
             pass
@@ -361,7 +414,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         return '', bad_command_embed
 
 
-async def add_user_to_db(username: str, current_plan='FREE', plan_end_date=9999999999, db_path=pg_db_url):
+async def add_user_to_db(username: str, user_id, current_plan='FREE', plan_end_date=9999999999, db_path=pg_db_url):
     if db_path is None:
         raise ValueError("Database path must be provided")
 
@@ -370,10 +423,10 @@ async def add_user_to_db(username: str, current_plan='FREE', plan_end_date=99999
         async with conn.transaction():
             await conn.execute(
                 """
-                INSERT INTO users (username, current_plan, plan_end_date, points, credits) VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO users (username, current_plan, plan_end_date, points, credits, user_id) VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (username) DO NOTHING;
                 """,
-                username, current_plan, plan_end_date, 0, 1000
+                username, current_plan, plan_end_date, 0, 1000, user_id
             )
     except Exception as e:
         # Add error handling or logging here

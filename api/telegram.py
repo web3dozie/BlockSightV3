@@ -3,6 +3,7 @@ from telegramModule.tg_utils import get_userid_from_tg_id, is_user_verified
 
 telegram_blueprint = Blueprint('telegram', __name__)
 
+
 """
 Should return a dict like this: {
   verified: True,

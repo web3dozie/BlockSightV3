@@ -54,7 +54,7 @@ class CompanionBot:
 
                 # Check if the user is in the DB. If not, prompt to sign-up
                 if not await user_exists(user.name):
-                    await add_user_to_db(user.name)
+                    await add_user_to_db(user.name, user.id)
 
                 if self.guild:
                     member = self.guild.get_member(user.id)
