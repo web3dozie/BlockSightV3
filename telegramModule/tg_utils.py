@@ -39,6 +39,8 @@ async def is_user_verified(userid:int) -> bool:
         await client.login(BOT_TOKEN)
         guild = await client.fetch_guild(BLOCKSIGHT_SERVER_ID)
         member = await guild.fetch_member(userid)
+        if not member:
+            return False
         verified_role = guild.get_role(VERIFIED_ROLE)
 
         if verified_role in member.roles:

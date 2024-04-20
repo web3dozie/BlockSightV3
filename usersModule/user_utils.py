@@ -414,7 +414,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         return '', bad_command_embed
 
 
-async def add_user_to_db(username: str, user_id, current_plan='FREE', plan_end_date=9999999999, db_path=pg_db_url):
+async def add_user_to_db(username: str, user_id:int|None, current_plan='FREE', plan_end_date=9999999999, db_path=pg_db_url, tg_id:int|None=None):
     if db_path is None:
         raise ValueError("Database path must be provided")
 
@@ -423,14 +423,16 @@ async def add_user_to_db(username: str, user_id, current_plan='FREE', plan_end_d
         async with conn.transaction():
             await conn.execute(
                 """
-                INSERT INTO users (username, current_plan, plan_end_date, points, credits, user_id) VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (username) DO NOTHING;
+                INSERT INTO users (username, current_plan, plan_end_date, points, credits, user_id, telegram_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (username) DO UPDATE
+            SET telegram_id = EXCLUDED.telegram_id;
                 """,
-                username, current_plan, plan_end_date, 0, 1000, user_id
+                username, current_plan, plan_end_date, 0, 1000, user_id, tg_id
             )
     except Exception as e:
         # Add error handling or logging here
         print(f"An error occurred while adding user: {e}")
+        raise e
     finally:
         await conn.close()
 
