@@ -16,7 +16,7 @@ except:
 
 api_id = config["api_id"]
 api_hash = config["api_hash"]
-tg_channel = 'ferbsfriends'
+tg_channel = "ferbsfriends"
 blocksight_api = config["blockSightApi"]
 dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
@@ -149,11 +149,7 @@ async def extract_address_time_data(messages) -> dict:
     return addressTimeData
 
 
-async def vetChannel(channel=tg_channel, db_url=blocksight_db_url):
-    # TODO -> CHECK LAST UPDATED FOR CHANNEL IN DB FIRST (IF THE RECORD DOESN"T EXIST OR IS TOO OLD PROCEED AS NORMAL
-    #  WE NEED A MAPPING OF CHANNEL_NAME TO CHANNEL ID UNLESS WE ARE FINE WITH THE I/O COST OF CREATING AND USING
-    #  A TG CLIENT OBJECT EVERY TIME
-
+async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
     async def is_outdated_channel(channel_id, db_url=blocksight_db_url):
         """
         Connect to DB, Check if the channel ID exists and if it is too old
@@ -212,9 +208,11 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url):
 
             messages = []
 
+            thirty_days_ago = int(time.time()) - 30 *24*60*60
             if days_of_data_to_fetch > 0:
                 print("fetching new messages")
                 while True:
+                    old_len = len(messages)
                     messages.extend((await client(GetHistoryRequest(
                         peer=channel_entity,
                         limit=3000,  # Anything more than this causes slowdowns
@@ -226,6 +224,9 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url):
                         hash=0
                     ))).messages)
 
+                    if len(messages) == old_len:
+                        break
+
                     if messages[-1].date <= breakoff_point.replace(tzinfo=datetime.timezone.utc):
                         break
                     else:
@@ -234,14 +235,15 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url):
                 await client.disconnect()
                 print(f"{len(messages)} messages fetched")
                 # filter for text messages
-                messages = [message for message in messages if message.message and message.message != ""]
+                messages = [message for message in messages if message.message and message.message != "" and int(message.date.timestamp()) >= thirty_days_ago ]
 
                 addressTimeData = await extract_address_time_data(messages)
 
                 await insert_address_time_into_db(addressTimeData=addressTimeData, channelId=channel_entity.channel_id)
 
     query = "SELECT token_mint, timestamp FROM tg_calls WHERE channel_id = $1 and timestamp >= $2"
-    tg_calls = await conn.fetch(query, channel_entity.channel_id, (int(time.time()) - 30 * 24 * 60 * 60))
+    conn = await asyncpg.connect(dsn=db_url)
+    tg_calls = await conn.fetch(query, channel_entity.channel_id, (int(time.time()) - window * 24 * 60 * 60))
     winCheckSemaphore = asyncio.Semaphore(30)
 
     async def check_if_win(address, timestamp):
@@ -267,17 +269,17 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url):
         win_rate = 0.0
 
     upsert_query = """
-        INSERT INTO channel_stats (channel_id, win_rate, trades_count, last_updated)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO channel_stats (channel_id, win_rate, trades_count, last_updated, channel_name)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (channel_id)
-        DO UPDATE SET win_rate = EXCLUDED.win_rate, last_updated = EXCLUDED.last_updated, trades_count = EXCLUDED.trades_count;
+        DO UPDATE SET win_rate = EXCLUDED.win_rate, last_updated = EXCLUDED.last_updated, trades_count = EXCLUDED.trades_count, channel_name = EXCLUDED.channel_name;
     """
 
     try:
-        await conn.execute(upsert_query, channel_entity.channel_id, win_rate, len(results), int(time.time()))
-        print(f"{channel}'s win rate upserted")
+        await conn.execute(upsert_query, channel_entity.channel_id, win_rate, len(results), int(time.time()), tg_channel)
+        print(f"{channel}'s data upserted")
     except Exception as e:
-        print(f"Error {e} while upserting {channel}'s win rate to db")
+        print(f"Error {e} while upserting {channel}'s data to db")
         raise e
     finally:
         await conn.close()
