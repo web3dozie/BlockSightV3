@@ -379,26 +379,26 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
             if await wallet_exists(data_to_scan):
                 await adjust_points(user.name, 20)
 
+            summary = None
+
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{blocksight_api}/core/analyse-wallet/{data_to_scan}",
                                        params={'window': window}) as response:
                     if response.status == 200:
                         summary = await response.json()
 
-                        pprint(summary)
-
                         scan_embed = make_wallet_scan_embed(summary)
                         await scan_message.edit(embed=scan_embed)
 
-                        if not summary:
-                            scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan[0:7]}...',
-                                               description='Please try another wallet')
+                    elif not summary:
+                        scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan[0:7]}...',
+                                           description='Please try another wallet')
 
-                            scan_embed.set_footer(text=f"BlockSight",
-                                                  icon_url="https://cdn.discordapp.com/attachments/"
-                                                           "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+                        scan_embed.set_footer(text=f"BlockSight",
+                                              icon_url="https://cdn.discordapp.com/attachments/"
+                                                       "1184131101782970398/1189235897288372244/BSL_Gradient.png")
 
-                            await scan_message.edit(embed=scan_embed)
+                        await scan_message.edit(embed=scan_embed)
 
                     else:
                         scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan[0:7]}...',
@@ -413,6 +413,25 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         elif data_to_scan.startswith('@'):
             data_to_scan = data_to_scan[1:]
             # TODO Integrate API for TG
+
+            def make_tg_embed(data):
+                window = 30  # TODO -> data['window']
+                win_rate = data.get('win_rate')
+                trade_count = data.get('trade_count')
+                channel = data.get('channel')
+
+                embed = Embed(color=0xc8a2c8, title=f"{channel}...'s  {window}D Summary",
+                                          description='In-Depth Breakdown')
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{blocksight_api}/core/vet-tg-channel/{data_to_scan}") as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        data['channel'] = data_to_scan
+
+
+
+
 
 
 

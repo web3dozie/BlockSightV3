@@ -16,7 +16,7 @@ except:
 
 api_id = config["api_id"]
 api_hash = config["api_hash"]
-tg_channel = "ferbsfriends"
+# tg_channel = "ferbsfriends"
 blocksight_api = config["blockSightApi"]
 dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
@@ -149,7 +149,7 @@ async def extract_address_time_data(messages) -> dict:
     return addressTimeData
 
 
-async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
+async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=None):
     async def is_outdated_channel(channel_id, db_url=blocksight_db_url):
         """
         Connect to DB, Check if the channel ID exists and if it is too old
@@ -166,12 +166,85 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
 
         if not last_seen:
             return True
-        elif int(time.time()) - last_seen < 24*60*60:
+        elif int(time.time()) - last_seen < 24 * 60 * 60:
             return False
         else:
             return True
 
-    async with TelegramClient('anon', api_id, api_hash) as client:
+    if not tg_client:
+        async with TelegramClient('anon', api_id, api_hash) as client:
+            await client.start()
+            try:
+                channel_entity = await client.get_input_entity(channel)
+            except ValueError as e:
+                print("Given channel can't be found")
+                raise e
+            except Exception as e:
+                print(f"An unexpected error occurred, {e}")
+                raise e
+
+            try:
+                conn = await asyncpg.connect(dsn=db_url)
+            except Exception as e:
+                print(f"Error {e} while connecting to blockSight's db")
+                raise e
+
+            if await is_outdated_channel(channel_entity.channel_id):
+                query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
+                last_db_tx_timestamp = await conn.fetchval(query, channel_entity.channel_id)
+
+                days_of_data_to_fetch = 0
+
+                if not last_db_tx_timestamp:
+                    time_since_last_update = 31 * 24 * 60 * 60
+                else:
+                    time_since_last_update = int(time.time()) - last_db_tx_timestamp
+
+                if time_since_last_update > 24 * 60 * 60:  # seconds in one day
+                    days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
+
+                print(f"Vetting channel {channel}")
+                offset_date = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
+                breakoff_point = offset_date - datetime.timedelta(days=days_of_data_to_fetch)
+
+                messages = []
+
+                thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
+                if days_of_data_to_fetch > 0:
+                    print("fetching new messages")
+                    while True:
+                        old_len = len(messages)
+                        messages.extend((await client(GetHistoryRequest(
+                            peer=channel_entity,
+                            limit=3000,  # Anything more than this causes slowdowns
+                            offset_date=offset_date,
+                            offset_id=0,
+                            max_id=0,
+                            min_id=0,
+                            add_offset=0,
+                            hash=0
+                        ))).messages)
+
+                        if len(messages) == old_len:
+                            break
+
+                        if messages[-1].date <= breakoff_point.replace(tzinfo=datetime.timezone.utc):
+                            break
+                        else:
+                            offset_date = messages[-1].date
+
+                    await client.disconnect()
+                    print(f"{len(messages)} messages fetched")
+                    # filter for text messages
+                    messages = [message for message in messages if message.message and message.message != "" and int(
+                        message.date.timestamp()) >= thirty_days_ago]
+
+                    addressTimeData = await extract_address_time_data(messages)
+
+                    await insert_address_time_into_db(addressTimeData=addressTimeData,
+                                                      channelId=channel_entity.channel_id)
+    else:
+        client = tg_client
         await client.start()
         try:
             channel_entity = await client.get_input_entity(channel)
@@ -187,7 +260,7 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
         except Exception as e:
             print(f"Error {e} while connecting to blockSight's db")
             raise e
-        
+
         if await is_outdated_channel(channel_entity.channel_id):
             query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
             last_db_tx_timestamp = await conn.fetchval(query, channel_entity.channel_id)
@@ -208,7 +281,7 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
 
             messages = []
 
-            thirty_days_ago = int(time.time()) - 30 *24*60*60
+            thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
             if days_of_data_to_fetch > 0:
                 print("fetching new messages")
                 while True:
@@ -235,11 +308,13 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
                 await client.disconnect()
                 print(f"{len(messages)} messages fetched")
                 # filter for text messages
-                messages = [message for message in messages if message.message and message.message != "" and int(message.date.timestamp()) >= thirty_days_ago ]
+                messages = [message for message in messages if message.message and message.message != "" and int(
+                    message.date.timestamp()) >= thirty_days_ago]
 
                 addressTimeData = await extract_address_time_data(messages)
 
-                await insert_address_time_into_db(addressTimeData=addressTimeData, channelId=channel_entity.channel_id)
+                await insert_address_time_into_db(addressTimeData=addressTimeData,
+                                                  channelId=channel_entity.channel_id)
 
     query = "SELECT token_mint, timestamp FROM tg_calls WHERE channel_id = $1 and timestamp >= $2"
     conn = await asyncpg.connect(dsn=db_url)
@@ -272,11 +347,13 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
         INSERT INTO channel_stats (channel_id, win_rate, trades_count, last_updated, channel_name)
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (channel_id)
-        DO UPDATE SET win_rate = EXCLUDED.win_rate, last_updated = EXCLUDED.last_updated, trades_count = EXCLUDED.trades_count, channel_name = EXCLUDED.channel_name;
+        DO UPDATE SET win_rate = EXCLUDED.win_rate, last_updated = EXCLUDED.last_updated, 
+        trades_count = EXCLUDED.trades_count, channel_name = EXCLUDED.channel_name;
     """
 
     try:
-        await conn.execute(upsert_query, channel_entity.channel_id, win_rate, len(results), int(time.time()), tg_channel)
+        await conn.execute(upsert_query, channel_entity.channel_id, win_rate, len(results), int(time.time()),
+                           channel)
         print(f"{channel}'s data upserted")
     except Exception as e:
         print(f"Error {e} while upserting {channel}'s data to db")
@@ -284,7 +361,7 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=31):
     finally:
         await conn.close()
 
-    return (win_rate, len(results),)
+    return win_rate, len(results)
 
 
 if __name__ == "__main__":

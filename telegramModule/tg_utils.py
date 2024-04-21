@@ -14,7 +14,7 @@ dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
 
 
-async def get_userid_from_tg_id(tg_id: int, db_url: str = blocksight_db_url) -> str | None:
+async def get_userid_from_tg_id(tg_id: int, db_url: str = blocksight_db_url):
     query = "select user_id from users where telegram_id = $1"
 
     try:

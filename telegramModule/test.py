@@ -1,5 +1,7 @@
 import asyncio
-from vet_tg_channel import vetChannel
+
+from telethon import TelegramClient
+from vet_tg_channel import vetChannel, api_id, api_hash
 
 telegram_channels = [
     "NiksGambles",
@@ -61,17 +63,21 @@ telegram_channels = [
 ]
 
 
-async def vetChannelLimited(semaphore, channel):
+async def vetChannelLimited(semaphore, channel, tg_client):
     async with semaphore:
-        return await vetChannel(channel=channel)
+        return await vetChannel(channel=channel, tg_client=tg_client)
 
 
 async def main_func():
-    semaphore = asyncio.Semaphore(1)  # Limits the number of concurrent tasks to 5
-    tasks = [vetChannelLimited(semaphore, channel) for channel in telegram_channels]
+    semaphore = asyncio.Semaphore(1)  # Limits the number of concurrent tasks to
+    client = TelegramClient('anon', api_id, api_hash)
+
+    tasks = [vetChannelLimited(semaphore, channel, client) for channel in telegram_channels]
     results = await asyncio.gather(*tasks)
+
+    await client.disconnect()
+
     return results
 
-# If this script is the main program and it's not being imported, run the asyncio event loop
 if __name__ == "__main__":
     asyncio.run(main_func())

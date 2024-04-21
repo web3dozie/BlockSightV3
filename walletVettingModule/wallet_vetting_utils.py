@@ -127,19 +127,13 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
     def help_me():
         # Calculate points for each category
         win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
-        print('WR DONE')
         trades_points = get_points(trades, trades_thresholds)
-        print('TRADES DONE')
         size_points = get_points(avg_size, size_thresholds)
-        print('SIZE DONE')
         pnl_points = get_points(pnl, pnl_thresholds)
-        print('PNL DONE')
 
         return win_rate_points, trades_points, size_points, pnl_points
 
     win_rate_points, trades_points, size_points, pnl_points = help_me()
-
-    print('POINTS FINALIZED')
 
     # Calculate overall points
     overall_points = win_rate_points + trades_points + size_points + pnl_points

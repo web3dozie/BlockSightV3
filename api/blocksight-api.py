@@ -50,7 +50,7 @@ async def api_is_win_trade():
 
     if not token or not timestamp:
         return "Missing parameter", 400
-    
+
     try:
         retv = await is_win_trade(token_mint=token, timestamp=int(timestamp))
         return {"result": retv}
@@ -58,17 +58,19 @@ async def api_is_win_trade():
         print(f"Error while checking trade {e}")
         return "Internal Server Error", 500
 
+
 @app.route("/core/vet-tg-channel/<tg_channel>")
 async def vet_channel(tg_channel):
     if not tg_channel:
         return "bad request", 400
-    
+
     try:
         retv = await vetChannel(tg_channel)
-        return {"win_rate": retv[0], "trade_count": retv[1]}
+        return {"win_rate": retv[0], "trade_count": retv[1]} # TODO time window in API response
     except Exception as e:
         print(f"Error while vetting channel {tg_channel}")
-        return make_response(jsonify({"status":"Internal Server Error", "message":str(e)}), 500)
+        return make_response(jsonify({"status": "Internal Server Error", "message": str(e)}), 500)
+
 
 @app.route("/core/discord-redirect")
 async def handle_discord_redirect():
@@ -116,29 +118,31 @@ async def handle_discord_redirect():
     except Exception as e:
         print(f"Exception {e} while getting access token")
         return "Internal Server Error", 500
-  
+
     user_info = None
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://discord.com/api/v10/users/@me", headers={"Authorization": f"Bearer {access_token}"}) as response:
+            async with session.get("https://discord.com/api/v10/users/@me",
+                                   headers={"Authorization": f"Bearer {access_token}"}) as response:
                 if response.status != 200:
                     print("Discord returned an error", response, response.status)
-                    return  "Internal Server Error", 500
-                
+                    return "Internal Server Error", 500
+
                 response = await response.json()
                 print(response)
                 user_info = response
     except Exception as e:
         print(f"Exception {e} while getting user info")
         return "Internal Server Error", 500
-    
+
     try:
         await add_user_to_db(username=user_info["username"], user_id=int(user_info["id"]), tg_id=int(tg_id))
     except Exception as e:
         print(f"Exception {e} while adding user info to db")
         return "Internal Server Error", 500
-    
+
     return "You've signed up successfully! Join the discord server and verify to use the Telegram bot"
+
 
 if __name__ == '__main__':
     app.run(debug=True)
