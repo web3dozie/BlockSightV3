@@ -16,7 +16,7 @@ except:
 
 api_id = config["api_id"]
 api_hash = config["api_hash"]
-# tg_channel = "ferbsfriends"
+tg_channel = "MadarasGambles"
 blocksight_api = config["blockSightApi"]
 dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
@@ -149,7 +149,8 @@ async def extract_address_time_data(messages) -> dict:
     return addressTimeData
 
 
-async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=None):
+async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=30, tg_client=None):
+    print(f"Vetting  channel {channel}")
     async def is_outdated_channel(channel_id, db_url=blocksight_db_url):
         """
         Connect to DB, Check if the channel ID exists and if it is too old
@@ -203,7 +204,6 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
                 if time_since_last_update > 24 * 60 * 60:  # seconds in one day
                     days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
 
-                print(f"Vetting channel {channel}")
                 offset_date = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
                 breakoff_point = offset_date - datetime.timedelta(days=days_of_data_to_fetch)
 
@@ -226,6 +226,8 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
                         ))).messages)
 
                         if len(messages) == old_len:
+                            break
+                        elif messages[-1].id == messages[-2].id:
                             break
 
                         if messages[-1].date <= breakoff_point.replace(tzinfo=datetime.timezone.utc):

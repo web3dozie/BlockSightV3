@@ -64,12 +64,15 @@ telegram_channels = [
 
 
 async def vetChannelLimited(semaphore, channel, tg_client):
-    async with semaphore:
-        return await vetChannel(channel=channel, tg_client=tg_client)
+    try:
+        async with semaphore:
+            return await vetChannel(channel=channel, tg_client=tg_client)
+    except Exception as e:
+        print(f"Exception {e} while vetting channel  {channel}")
 
 
 async def main_func():
-    semaphore = asyncio.Semaphore(1)  # Limits the number of concurrent tasks to
+    semaphore = asyncio.Semaphore(5)  # Limits the number of concurrent tasks to
     client = TelegramClient('anon', api_id, api_hash)
 
     tasks = [vetChannelLimited(semaphore, channel, client) for channel in telegram_channels]
