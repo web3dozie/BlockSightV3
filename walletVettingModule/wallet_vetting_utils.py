@@ -84,8 +84,6 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
     win_rate_thresholds = {'S': 25, 'A': 20, 'B': 15, 'C': 10, 'F': 10}
     size_thresholds = {'S': 2000, 'A': 1000, 'B': 500, 'C': 200, 'F': 200}
 
-    print('THRESHOLDS DEFINED')
-
     if window == 30:
         trades_thresholds = {'S': 100, 'A': 75, 'B': 50, 'C': 20, 'F': 20}
         pnl_thresholds = {'S': 25000, 'A': 10000, 'B': 2500, 'C': 1000, 'F': 1000}

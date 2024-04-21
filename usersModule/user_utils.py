@@ -329,7 +329,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                               icon_url="https://cdn.discordapp.com/attachments/"
                                        "1184131101782970398/1189235897288372244/BSL_Gradient.png")
 
-        await adjust_credits(user.name, 5)
+        await adjust_credits(user.name, 5) # add 5 credits
 
         if is_valid_wallet(data_to_scan):
             scan_message = await message.channel.send(content='', embed=scan_embed)
@@ -376,7 +376,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
                 return wallet_scan_embed
 
-            if await wallet_exists(data_to_scan):
+            if not await wallet_exists(data_to_scan):
                 await adjust_points(user.name, 20)
 
             summary = None

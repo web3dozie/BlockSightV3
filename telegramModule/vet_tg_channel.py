@@ -16,7 +16,6 @@ except:
 
 api_id = config["api_id"]
 api_hash = config["api_hash"]
-# tg_channel = "ferbsfriends"
 blocksight_api = config["blockSightApi"]
 dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
