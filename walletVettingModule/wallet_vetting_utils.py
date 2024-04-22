@@ -415,7 +415,7 @@ async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
         await conn.close()  # Ensure the connection is closed
 
 
-async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url) -> bool:
+async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, window:int=30) -> bool:
     """
     Check if the wallet data in the database is outdated (older than 1 day).
 
@@ -428,16 +428,17 @@ async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url) -> bo
     """
     # Calculate the threshold timestamp for 1 day ago
     one_day_ago = int(time.time()) - (24 * 60 * 60)
+    window = f"{window}d"
 
     # Connect to the PostgreSQL database asynchronously
     conn = await asyncpg.connect(dsn=db_url)
     try:
         # Prepare the SELECT statement to find the last_checked value for the given wallet
         query = """
-        SELECT last_checked FROM wallets WHERE wallet = $1
+        SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
         """
         # Execute the query
-        result = await conn.fetchval(query, wallet_address)
+        result = await conn.fetchval(query, wallet_address, window)
 
         # Check if the wallet was found and if its last_checked is older than one day ago
         if not result:
@@ -497,12 +498,13 @@ async def process_wallet(wallet_address: str, window: int = 30) -> dict:
     Returns:
         dict: A dictionary containing the processed wallet summary.
     """
-    if await is_wallet_outdated(wallet_address):
+    if await is_wallet_outdated(wallet_address, window=window):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
-        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
-        if len(thirty_day_swaps) == 0:
-            raise Exception("Unable to fetch txs")
+        try:
+            thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
+        except Exception as e:
+            raise e
         print('FETCHED TXS')
         sol_price = await get_sol_price()
 
@@ -787,7 +789,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
                 await conn.close()
-                return []
+                raise Exception("Failed to fetch data after retries.")
 
     # slow version of the comprehension
     # trfsList = [tx["tokenTransfers"] for tx in thirty_day_txs if (tx['feePayer'] !=
@@ -834,7 +836,8 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
     except Exception as e:
         print(f"Error {e} while running db insertion/retrieval operations for wallet {wallet}.")
         await conn.close()
-        return []
+        raise e
+        
 
     await conn.close()
     return swap_txs_in_window
@@ -862,4 +865,4 @@ async def parse_for_swaps(tx_data):
 
 
 if __name__ == '__main__':
-    asyncio.run(process_wallet('98HgTyeHTp18q32RHiZtjXKbumZoC8JThrG31YkXLQeV'))
+    print(asyncio.run(process_wallet('3AL3N6WgbyMX8XpAV7TSJrHdDxQNDX7R1j5neXVAQVxA', window=7)))

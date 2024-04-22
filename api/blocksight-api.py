@@ -1,4 +1,4 @@
-from walletVettingModule.wallet_vetting_utils import process_wallet
+from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, generate_trader_message, is_valid_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel
@@ -21,11 +21,29 @@ def add_cors_headers(response):
 @app.route("/core/analyse-wallet/<wallet_address>")
 async def analyse_wallet(wallet_address):
     window = request.args.get("window", default=30, type=int)
+    if not is_valid_wallet(wallet_address):
+        return "Invalid wallet", 400
     try:
         wallet_summary = await process_wallet(wallet_address, window)
         return wallet_summary
     except Exception as e:
         return f"Internal Server Error: {str(e)}", 5000
+
+@app.route("/core/analyse-wallet-graded/<wallet_address>")
+async def analyse_wallet_return_grades(wallet_address):
+    window = request.args.get("window", default=30, type=int)
+    if not is_valid_wallet(wallet_address):
+        return "Invalid wallet", 400
+    try:
+        wallet_data = await process_wallet(wallet_address, window)
+        grades = determine_wallet_grade(wallet_data['trades'], float(wallet_data['win_rate']),
+                                                float(wallet_data['avg_size']), float(wallet_data['pnl']),
+                                                window=window)
+        trader_message = generate_trader_message(grades)
+        return {"stats":wallet_data, "grades":grades, "msg":trader_message}
+    except Exception as e:
+        return f"Internal Server Error: {str(e)}", 5000
+
 
 
 @app.route("/core/verify-token-mint/<token_mint>")
@@ -141,7 +159,7 @@ async def handle_discord_redirect():
         print(f"Exception {e} while adding user info to db")
         return "Internal Server Error", 500
 
-    return "You've signed up successfully! Join the discord server and verify to use the Telegram bot"
+    return "<p>You've signed up successfully! <a href='https://discord.gg/blocksight'>Join the discord server</a> and verify to use the Telegram bot</p>"
 
 
 if __name__ == '__main__':
