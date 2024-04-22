@@ -1,4 +1,4 @@
-from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, generate_trader_message, is_valid_wallet
+from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, generate_trader_message, is_valid_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel
@@ -21,21 +21,14 @@ def add_cors_headers(response):
 @app.route("/core/analyse-wallet/<wallet_address>")
 async def analyse_wallet(wallet_address):
     window = request.args.get("window", default=30, type=int)
-    if not is_valid_wallet(wallet_address):
-        return "Invalid wallet", 400
-    try:
-        wallet_summary = await process_wallet(wallet_address, window)
-        return wallet_summary
-    except Exception as e:
-        return f"Internal Server Error: {str(e)}", 5000
-
-@app.route("/core/analyse-wallet-graded/<wallet_address>")
-async def analyse_wallet_return_grades(wallet_address):
-    window = request.args.get("window", default=30, type=int)
+    format = request.args.get("format", default=False, type=bool)
     if not is_valid_wallet(wallet_address):
         return "Invalid wallet", 400
     try:
         wallet_data = await process_wallet(wallet_address, window)
+        if not format:
+            return wallet_data
+        
         grades = determine_wallet_grade(wallet_data['trades'], float(wallet_data['win_rate']),
                                                 float(wallet_data['avg_size']), float(wallet_data['pnl']),
                                                 window=window)
@@ -80,6 +73,7 @@ async def api_is_win_trade():
 async def vet_channel(tg_channel):
     print('API STARTED')
     window = request.args.get("window", default=30, type=int)
+    format = request.args.get("format", default=False, type=bool)
 
     if not tg_channel:
         return "bad request", 400
@@ -88,10 +82,14 @@ async def vet_channel(tg_channel):
     try:
         retv = await vetChannel(tg_channel, window=window)
         print('VET SUCCEEDED')
-        return retv# TODO time_window and last_updated in API response
+        if not format:
+            return retv
+        
+        grades = determine_tg_grade(retv["trade_count"], retv["win_rate"], retv["time_window"])
+        return {"stats": retv, "grades":grades}
     except Exception as e:
         print('VET FAILED')
-        print(f"Error while vetting channel {tg_channel}")
+        print(f"Error {e} while vetting channel {tg_channel}")
         return make_response(jsonify({"status": "Internal Server Error", "message": str(e)}), 500)
 
 

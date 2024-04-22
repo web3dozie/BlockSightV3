@@ -363,7 +363,7 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=30, tg
     finally:
         await conn.close()
 
-    return {"win_rate":win_rate, "trade_count": len(results), "time_window":window, "last_updated": int(time.time())}
+    return {"win_rate": win_rate, "trade_count": len(results), "time_window": window, "last_updated": int(time.time())}
 
 
 if __name__ == "__main__":
