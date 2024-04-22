@@ -431,12 +431,16 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
             # scan_message = await message.channel.send(content='', embed=scan_embed)
 
             async def make_tg_embed(data_to_use):
+                print('MAKING TG EMBED')
                 data_window = 30  # TODO -> data['window']
                 win_rate = data_to_use.get('win_rate')
                 trade_count = data_to_use.get('trade_count')
                 channel = data_to_use.get('channel')
 
+                print('DATA FETCHED')
                 grades = determine_tg_grade(trade_count, win_rate)
+                print('GRADES DETERMINED')
+                print(grades)
 
                 tg_embed = Embed(color=0xc8a2c8, title=f"{channel}...'s  {data_window}D Summary",
                                  description='In-Depth Breakdown')
@@ -444,13 +448,18 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                                     icon_url="https://cdn.discordapp.com/attachments/"
                                              "1184131101782970398/1189235897288372244/BSL_Gradient.png")
 
+                print('RESPONSE EMBED MADE')
+
                 try:
                     tg_embed.add_field(name=f'Overall Rank: {grades['overall_grade']}',
                                        value=f'{generate_tg_message(grades)}')
                     tg_embed.add_field(name="", value='', inline=False)
-                except Exception as e:
-                    print(e)
-                    raise e
+
+                except Exception as exc:
+                    print(exc)
+                    raise exc
+
+                print('EMBED HEADER MADE')
 
                 tg_embed.add_field(name=f'Calling Frequency: ({grades['trades_grade']})',
                                    value=f'{round((data_to_use['trade_count'] / window), 2)} calls per day')
@@ -482,8 +491,6 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                 print('SESSION MADE')
                 try:
                     async with session.get(f"{blocksight_api}/core/vet-tg-channel/{data_to_scan}") as response:
-
-                        print(response.json())
                         print('RESPONSE GOTTEN')
                         if response.status == 200:
                             data = await response.json()

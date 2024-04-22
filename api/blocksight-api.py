@@ -45,7 +45,6 @@ async def analyse_wallet_return_grades(wallet_address):
         return f"Internal Server Error: {str(e)}", 5000
 
 
-
 @app.route("/core/verify-token-mint/<token_mint>")
 async def verify_token_mint(token_mint):
     # might add some validation logic here

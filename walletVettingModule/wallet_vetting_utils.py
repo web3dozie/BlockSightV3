@@ -413,12 +413,13 @@ def generate_trader_message(data):
 
 
 def generate_tg_message(data):
-
+    '''
     grade = data['overall_grade']
     pnl = data['pnl_grade']
     frequency = data['trades_grade']
     win_rate = data['win_rate_grade']
-    avg_size = data['size_grade']
+    '''
+    return 'Hiii'
 
 
 async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111111112') -> float:
