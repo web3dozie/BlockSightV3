@@ -79,13 +79,17 @@ async def api_is_win_trade():
 
 @app.route("/core/vet-tg-channel/<tg_channel>")
 async def vet_channel(tg_channel):
+    print('API STARTED')
     if not tg_channel:
         return "bad request", 400
 
+    print('VET STARTED')
     try:
         retv = await vetChannel(tg_channel)
-        return {"win_rate": retv[0], "trade_count": retv[1]} # TODO time window in API response
+        print('VET SUCCEEDED')
+        return {"win_rate": retv[0], "trade_count": retv[1]}  # TODO time_window and last_updated in API response
     except Exception as e:
+        print('VET FAILED')
         print(f"Error while vetting channel {tg_channel}")
         return make_response(jsonify({"status": "Internal Server Error", "message": str(e)}), 500)
 

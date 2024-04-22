@@ -94,8 +94,6 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
         trades_thresholds = {'S': 100 / 30, 'A': 75 / 30, 'B': 50 / 30, 'C': 20 / 30, 'F': 20 / 30}
         pnl_thresholds = {'S': 30000 / 30, 'A': 15000 / 30, 'B': 5000 / 30, 'C': 2500 / 30, 'F': 1000 / 30}
 
-    print('THRESHOLDS FINALIZED')
-
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
         print('I STARTED')
@@ -152,8 +150,6 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
     if pnl < pnl_thresholds['F']:
         overall_points -= 15
 
-    print('POINTS ADJUSTED')
-
     # Determine overall tier
     if overall_points >= 115:
         overall_tier = 'SS'
@@ -187,7 +183,6 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
         else:
             return 'F'
 
-    print('DONE WITH GRADES')
     # Return results
     return {
         "overall_grade": overall_tier,
@@ -198,8 +193,129 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
     }
 
 
+def determine_tg_grade(trades: int, win_rate: float, window=30) -> dict:
+    """
+    Determine the grade of a tg channel based on its performance metrics.
+
+    Args:
+        trades (int): The number of trades.
+        win_rate (float): The win rate percentage.
+
+    Returns:
+        dict: A dictionary containing the overall grade and individual grades for each metric.
+    """
+
+    # Define thresholds for each category
+    win_rate_thresholds = {'S': 45, 'A': 30, 'B': 20, 'C': 15, 'F': 10}
+    trades_thresholds = {'S': 30, 'A': 25, 'B': 20, 'C': 15, 'F': 10}
+
+    profit_per_bet = 2.5
+    win_prob = win_rate / 100
+    pnl = profit_per_bet * trades * win_prob - 1 * trades
+
+    if window == 30:
+        trades_thresholds = {'S': 30, 'A': 25, 'B': 20, 'C': 15, 'F': 10}
+        pnl_thresholds = {'S': 15, 'A': 10, 'B': 5, 'C': 0, 'F': 0}
+    elif window == 7:
+        trades_thresholds = {'S': 30 / 4, 'A': 25 / 4, 'B': 20 / 4, 'C': 15 / 4, 'F': 10 / 4}
+        pnl_thresholds = {'S': 15 / 4, 'A': 10 / 4, 'B': 5 / 4, 'C': 0 / 4, 'F': 0 / 4}
+    else:
+        trades_thresholds = {'S': 30 / 30, 'A': 25 / 30, 'B': 20 / 30, 'C': 15 / 30, 'F': 10 / 30}
+        pnl_thresholds = {'S': 15 / 30, 'A': 10 / 30, 'B': 5 / 30, 'C': -1 / 30, 'F': -5 / 30}
+
+    # Helper function to determine points based on value and thresholds
+    def get_points(value, thresholds):
+        try:
+            if value >= thresholds['S']:
+                print('S')
+                return 25
+            elif value >= thresholds['A']:
+                print('A')
+                return 15
+            elif value >= thresholds['B']:
+                print('B')
+                return 10
+            elif value >= thresholds['C']:
+                print('C')
+                return 5
+            else:
+                print('F')
+                return 1
+        except Exception as e:
+            print(e)
+            raise e
+
+    # -------------------------------------------------- #
+    def help_me():
+        # Calculate points for each category
+        win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
+        trades_points = get_points(trades, trades_thresholds)
+        pnl_points = get_points(pnl, pnl_thresholds)
+
+        return win_rate_points, trades_points, pnl_points
+
+    win_rate_points, trades_points, pnl_points = help_me()
+
+    # Calculate overall points
+    overall_points = win_rate_points + trades_points + pnl_points
+
+    # Adjust overall points for Tier F
+    if win_rate < win_rate_thresholds['F']:
+        overall_points -= 10
+
+    if trades < trades_thresholds['F']:
+        overall_points -= 5
+
+    if trades < 10:
+        overall_points -= 10
+
+    if pnl < pnl_thresholds['F']:
+        overall_points -= 10
+
+    # Determine overall tier
+    if overall_points >= 100:
+        overall_tier = 'SS'
+    elif overall_points >= 90:
+        overall_tier = 'S'
+    elif overall_points >= 80:
+        overall_tier = 'A+'
+    elif overall_points >= 70:
+        overall_tier = 'A'
+    elif overall_points >= 60:
+        overall_tier = 'B+'
+    elif overall_points >= 50:
+        overall_tier = 'B'
+    elif overall_points >= 45:
+        overall_tier = 'C+'
+    elif overall_points >= 40:
+        overall_tier = 'C'
+    else:
+        overall_tier = 'F'
+
+    # Determine tier for each category (reusing get_points function for simplicity)
+    def get_tier(points):
+        if points == 25:
+            return 'S'
+        elif points == 15:
+            return 'A'
+        elif points == 10:
+            return 'B'
+        elif points == 5:
+            return 'C'
+        else:
+            return 'F'
+
+    # Return results
+    return {
+        "overall_grade": overall_tier,
+        "win_rate_grade": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
+        "trades_grade": get_tier(trades_points),
+        "pnl_grade": get_tier(pnl_points),
+        "pnl": pnl
+    }
+
+
 def generate_trader_message(data):
-    print('GENERATE TRADER MESSAGE STARTS')
 
     grade = data['overall_grade']
     pnl = data['pnl_grade']
@@ -207,12 +323,26 @@ def generate_trader_message(data):
     win_rate = data['win_rate_grade']
     avg_size = data['size_grade']
 
-    print('DONE LOADING')
-
     # Define your message categories
     if grade in ['SS', 'S'] and avg_size in ['S', 'A'] and frequency in ['S', 'A']:
         return ("The Solana market's VIP! A trading juggernaut, splashing around big bets like a "
                 "celebrity at a Vegas pool party. Who the fuck are you and why are you so good at everything?")
+
+    elif grade in ['SS', 'S'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return ("The silent assassin! With a portfolio stealthier than a cat burglar, "
+                "you’re raking in consistent wins. Small, sneaky, and successful.")
+
+    elif grade in ['S', 'A'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return ("The sniper, picking off wins with surgical precision. You might not be making it rain,"
+                " but your steady hand is writing a success story one trade at a time.")
+
+    elif grade in ['A'] and frequency in ['S', 'A'] and avg_size in ['S', 'A']:
+        return ("The celebrity trader! Flashy, frequent, and fabulously wealthy. "
+                "You’re not just in the market, you ARE the market. Autographs, please?")
+
+    elif grade in ['A', 'B+'] and avg_size in ['S', 'A'] and pnl in ['C', 'F']:
+        return ("The bold gambler, throwing around SOL like it’s confetti at a New Year’s party."
+                " Sure, it’s a bit of a coin flip, but who doesn't love a bit of drama?")
 
     elif grade in ['B', 'C'] and avg_size in ['C', 'F'] and win_rate in ['S', 'A']:
         return ("The scrappy underdog! Not the flashiest wallet in the room, "
@@ -221,25 +351,9 @@ def generate_trader_message(data):
     elif grade in ['C', 'F'] and avg_size in ['B', 'C'] and pnl in ['C', 'F']:
         return "You're trash, Get a life off your screen"
 
-    elif grade in ['SS', 'S'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
-        return ("The silent assassin! With a portfolio stealthier than a cat burglar, "
-                "you’re raking in consistent wins. Small, sneaky, and successful.")
-
-    elif grade in ['A', 'B+'] and avg_size in ['S', 'A'] and pnl in ['C', 'F']:
-        return ("The bold gambler, throwing around SOL like it’s confetti at a New Year’s party."
-                " Sure, it’s a bit of a coin flip, but who doesn't love a bit of drama?")
-
-    elif grade in ['S', 'A'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
-        return ("The sniper, picking off wins with surgical precision. You might not be making it rain,"
-                " but your steady hand is writing a success story one trade at a time.")
-
     elif grade in ['B', 'C'] and frequency in ['S', 'A'] and avg_size in ['B', 'C']:
         return ("Busy as a bee, buzzing from one trade to the next. Not the biggest player on the field,"
                 " but definitely one of the most energetic. Go, Speed Racer, go!")
-
-    elif grade in ['A'] and frequency in ['S', 'A'] and avg_size in ['S', 'A']:
-        return ("The celebrity trader! Flashy, frequent, and fabulously wealthy. "
-                "You’re not just in the market, you ARE the market. Autographs, please?")
 
     elif grade in ['F'] and frequency in ['C', 'F'] and avg_size in ['C', 'F']:
         return "Shit Shit Shit -- Your wallet is a waste of good SOL. Fuck Off."
@@ -264,37 +378,47 @@ def generate_trader_message(data):
     elif grade in ['C', 'F'] and avg_size in ['S', 'A'] and frequency in ['C', 'F']:
         return "Traders like you pay my bills"
 
+    elif grade in ['SS', 'S'] and frequency in ['S', 'A'] and pnl in ['C', 'F']:
+        return ("The speed demon with a penchant for danger! Racing through trades like a "
+                "Formula 1 driver. Fast, furious, and living on the edge!")
+
+    elif grade in ['S'] and avg_size in ['S'] and pnl in ['S'] and win_rate in ['S'] and frequency in ['B', 'C', 'F']:
+        return "What a degen, talk about conviction trades."
+
     elif grade in ['SS', 'S', 'A'] and pnl in ['S', 'A'] and avg_size in ['C', 'F']:
         return ("The silent winner, sneaking in wins like a ninja in the night. "
                 "Small in size, but colossal in impact. Who says you need to shout to be heard?")
 
-    elif grade in ['SS', 'S'] and frequency in ['S', 'A'] and pnl in ['C', 'F']:
-        return ("The speed demon with a penchant for danger! Racing through trades like a "
-                "Formula 1 driver. Fast, furious, and living on the edge!")
+    elif grade in ['S', 'A'] and avg_size in ['A', 'B', 'C'] and pnl in ['A', 'S'] and win_rate in ['S']:
+        return "Who are you and why is your wallet so sexy?"
 
     elif grade in ['A', 'B+'] and frequency in ['C', 'F'] and avg_size in ['B', 'C']:
         return ("The casual trader, strolling through the Solana market like it’s a "
                 "Sunday walk in the park. Not too rushed, enjoying the scenery, making moves at a leisurely pace.")
 
-    elif grade in ['C', 'F'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
-        return "Schrodinger's Degen - You're shit but you make money? Teach me ser."
-
     elif grade in ['B+', 'A'] and avg_size in ['A', 'B'] and pnl in ['A', 'B'] and win_rate in ['B', 'C']:
         return "You're quite profitable, but you should buy dumb shit less often."
-
-    elif grade in ['S', 'A'] and avg_size in ['A', 'B', 'C'] and pnl in ['A', 'S'] and win_rate in ['S']:
-        return "Who are you and why is your wallet so sexy?"
-
-    elif grade in ['S'] and avg_size in ['S'] and pnl in ['S'] and win_rate in ['S'] and frequency in ['B', 'C', 'F']:
-        return "What a degen, talk about conviction trades."
 
     elif (grade in ['B+', 'B', 'C'] and avg_size in ['B', 'C'] and pnl in ['F'] and win_rate in ['S'] and
           frequency in ['S']):
         return "You're good at a few things, but you aren't making money. Get good or get out."
+
+    elif grade in ['C', 'F'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return "Schrodinger's Degen - You're shit but you make money? Teach me ser."
+
     else:
         # Default message for unclassified scenarios
         return random.choice(["Hmm", "What do we have here?", "Weird..", "The voices, make them stoppp",
                               "I just bought a used car"])
+
+
+def generate_tg_message(data):
+
+    grade = data['overall_grade']
+    pnl = data['pnl_grade']
+    frequency = data['trades_grade']
+    win_rate = data['win_rate_grade']
+    avg_size = data['size_grade']
 
 
 async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111111112') -> float:
