@@ -38,6 +38,36 @@ async def wallet_exists(wallet_address, db_url=pg_db_url):
         return False
 
 
+async def channel_exists(channel, db_url=pg_db_url):
+    """
+    Check if a tg channel exists in the wallets table asynchronously using PostgreSQL.
+
+    :param db_url: URL to the PostgreSQL database
+    :param channel: The channel to check
+    :return: True if the wallet_address exists, False otherwise
+    """
+    try:
+        # Connect to the PostgreSQL database asynchronously
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            # Prepare and execute the SQL query asynchronously
+            query = "SELECT EXISTS(SELECT 1 FROM channel_stats WHERE channel_name = $1)"
+            exists = await conn.fetchval(query, channel)
+
+            return bool(exists)
+
+        finally:
+            # Ensure the database connection is closed
+            await conn.close()
+
+    except asyncpg.PostgresError as e:
+        print(f"Database error: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return False
+
+
 async def user_exists(username: str, db_url=pg_db_url):
     """
     Check if a username exists in the users table asynchronously using PostgreSQL.

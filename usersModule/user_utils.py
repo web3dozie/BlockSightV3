@@ -2,6 +2,7 @@
 PRIMARY LOGIN METHOD WILL BE VIA A DISCORD ACCOUNT
 """
 import random, re, asyncpg, discord
+import time
 
 from pprint import pprint
 
@@ -9,8 +10,9 @@ import aiohttp
 from discord import Embed
 from datetime import datetime
 
-from dbs.db_operations import wallet_exists
-from walletVettingModule.wallet_vetting_utils import is_valid_wallet, determine_wallet_grade, generate_trader_message
+from dbs.db_operations import wallet_exists, channel_exists
+from walletVettingModule.wallet_vetting_utils import is_valid_wallet, determine_wallet_grade, generate_trader_message, \
+    determine_tg_grade, generate_tg_message, get_sol_price
 
 BLOCKSIGHT_SERVER_ID = 1101255371210887258
 VERIFIED_ROLE = 1200907085320294460
@@ -329,7 +331,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                               icon_url="https://cdn.discordapp.com/attachments/"
                                        "1184131101782970398/1189235897288372244/BSL_Gradient.png")
 
-        await adjust_credits(user.name, 5) # add 5 credits
+        await adjust_credits(user.name, 5)  # add 5 credits
 
         if is_valid_wallet(data_to_scan):
             scan_message = await message.channel.send(content='', embed=scan_embed)
@@ -342,7 +344,6 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                 wallet_scan_embed = Embed(color=0xc8a2c8, title=f"{wallet_data['wallet'][0:7]}...'s  {window}D Summary",
                                           description='In-Depth Breakdown')
                 try:
-                    print(grades['overall_grade'])
                     wallet_scan_embed.add_field(name=f'Overall Rank: {grades['overall_grade']}',
                                                 value=f'{generate_trader_message(grades)}')
                     wallet_scan_embed.add_field(name="", value='', inline=False)
@@ -379,8 +380,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
             if not await wallet_exists(data_to_scan):
                 await adjust_points(user.name, 20)
 
-            summary = None
-
+            summary = {}
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{blocksight_api}/core/analyse-wallet/{data_to_scan}",
                                        params={'window': window}) as response:
@@ -390,7 +390,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                         scan_embed = make_wallet_scan_embed(summary)
                         await scan_message.edit(embed=scan_embed)
 
-                    elif not summary:
+                    elif not summary.get('wallet'):
                         scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan[0:7]}...',
                                            description='Please try another wallet')
 
@@ -410,35 +410,119 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
                         await scan_message.edit(embed=scan_embed)
 
-        elif data_to_scan.startswith('@'):
-            data_to_scan = data_to_scan[1:]
-            # TODO Integrate API for TG
+        elif data_to_scan.startswith('@') or data_to_scan.startswith('https://t.me/'):
+            print('TG SCAN STARTS')
+            if data_to_scan.startswith('@'):
+                data_to_scan = data_to_scan[1:]
+            else:
+                data_to_scan = data_to_scan[14:]
 
-            def make_tg_embed(data):
-                window = 30  # TODO -> data['window']
-                win_rate = data.get('win_rate')
-                trade_count = data.get('trade_count')
-                channel = data.get('channel')
+            print(f'DATA TO SCAN IS: {data_to_scan}')
 
-                embed = Embed(color=0xc8a2c8, title=f"{channel}...'s  {window}D Summary",
-                                          description='In-Depth Breakdown')
+            scan_embed = Embed(color=0xc8a2c8, title=f'Starting scan for {data_to_scan[0:5]}...',
+                               description='Please be patient')
 
+            print('DEFAULT EMBED MADE')
+
+            scan_embed.set_footer(text=f"BlockSight",
+                                  icon_url="https://cdn.discordapp.com/attachments/"
+                                           "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+
+            # scan_message = await message.channel.send(content='', embed=scan_embed)
+
+            async def make_tg_embed(data_to_use):
+                data_window = 30  # TODO -> data['window']
+                win_rate = data_to_use.get('win_rate')
+                trade_count = data_to_use.get('trade_count')
+                channel = data_to_use.get('channel')
+
+                grades = determine_tg_grade(trade_count, win_rate)
+
+                tg_embed = Embed(color=0xc8a2c8, title=f"{channel}...'s  {data_window}D Summary",
+                                 description='In-Depth Breakdown')
+                tg_embed.set_footer(text=f"BlockSight",
+                                    icon_url="https://cdn.discordapp.com/attachments/"
+                                             "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+
+                try:
+                    tg_embed.add_field(name=f'Overall Rank: {grades['overall_grade']}',
+                                       value=f'{generate_tg_message(grades)}')
+                    tg_embed.add_field(name="", value='', inline=False)
+                except Exception as e:
+                    print(e)
+                    raise e
+
+                tg_embed.add_field(name=f'Calling Frequency: ({grades['trades_grade']})',
+                                   value=f'{round((data_to_use['trade_count'] / window), 2)} calls per day')
+
+                tg_embed.add_field(name=f'Win Rate: {grades['win_rate_grade']}',
+                                   value=f'{data_to_use['win_rate']}% '
+                                         f'(hit 2.5x in 4 days or less)')
+
+                try:
+                    tg_embed.add_field(name=f'Simulated PnL: {grades['pnl_grade']}',
+                                       value=f'${round((grades['pnl'] / window), 2) * await get_sol_price()}'
+                                             f' in daily profits with 1 SOL per trade.')
+                except Exception as e:
+                    print(e)
+                    raise e
+
+                tg_embed.add_field(name=f'Last updated:', value=f'{f'<t:{int(time.time())}:R>'}')
+                # TODO value=f'{f'<t:{data_to_use['last_checked']}:R>'}') -> Replace once API fixed
+
+                return tg_embed
+
+            if not await channel_exists(data_to_scan):
+                print('CHANNEL IS NEW')
+                await adjust_points(user.name, 20)
+
+            print('API ABOUT TO START')
+            data = {}
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{blocksight_api}/core/vet-tg-channel/{data_to_scan}") as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        data['channel'] = data_to_scan
+                print('SESSION MADE')
+                try:
+                    async with session.get(f"{blocksight_api}/core/vet-tg-channel/{data_to_scan}") as response:
 
+                        print(response.json())
+                        print('RESPONSE GOTTEN')
+                        if response.status == 200:
+                            data = await response.json()
+                            print('API RESPONSE GOTTEN')
+                            pprint(data)
+                            data['channel'] = data_to_scan
+                except Exception as e:
+                    print(e)
+                    raise e
 
+            if data.get('win_rate'):
+                print('WIN RATE EXISTS')
+                scan_message = await message.channel.send(content='', embed=scan_embed)
+                print('MESSAGE SENT')
+                scan_embed = await make_tg_embed(data)
+                print('EMBED MADE')
 
+                await scan_message.edit(embed=scan_embed)
+                print('MESSAGE EDITED')
 
+            else:
+                scan_embed = Embed(color=0xc8a2c8, title=f'Scan failed for {data_to_scan}...',
+                                   description='Please try another channel')
 
+                scan_embed.set_footer(text=f"BlockSight",
+                                      icon_url="https://cdn.discordapp.com/attachments/"
+                                               "1184131101782970398/1189235897288372244/BSL_Gradient.png")
 
-
+                return '', scan_embed
 
         else:
-            # INVALID INPUT
-            pass
+            scan_embed = Embed(color=0xc8a2c8, title=f'Invalid Input',
+                               description='Please use the right format')
+
+            scan_embed.set_footer(text=f"BlockSight",
+                                  icon_url="https://cdn.discordapp.com/attachments/"
+                                           "1184131101782970398/1189235897288372244/BSL_Gradient.png")
+
+            return '', scan_embed
 
     else:
         bad_command_embed = Embed(color=0xc8a2c8, title='Invalid Command',
@@ -449,7 +533,8 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         return '', bad_command_embed
 
 
-async def add_user_to_db(username: str, user_id:int|None, current_plan='FREE', plan_end_date=9999999999, db_path=pg_db_url, tg_id:int|None=None):
+async def add_user_to_db(username: str, user_id: int | None, current_plan='FREE', plan_end_date=9999999999,
+                         db_path=pg_db_url, tg_id: int | None = None):
     if db_path is None:
         raise ValueError("Database path must be provided")
 
