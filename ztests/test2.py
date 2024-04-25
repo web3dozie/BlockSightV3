@@ -11,7 +11,7 @@ def calculate_for_keys(daily_revenue, workers_share, workers_number):
 
 
 rev = 750
-worker_pge = 39.9
-num_workers = 10.5
+worker_pge = 35
+num_workers = 15.4
 
 print(f'{calculate_for_tokens(rev, worker_pge, num_workers):.2f}%')

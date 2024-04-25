@@ -431,24 +431,19 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
             # scan_message = await message.channel.send(content='', embed=scan_embed)
 
             async def make_tg_embed(data_to_use):
-                print('MAKING TG EMBED')
+
                 data_window = 30  # TODO -> data['window']
                 win_rate = data_to_use.get('win_rate')
                 trade_count = data_to_use.get('trade_count')
                 channel = data_to_use.get('channel')
 
-                print('DATA FETCHED')
                 grades = determine_tg_grade(trade_count, win_rate)
-                print('GRADES DETERMINED')
-                print(grades)
 
-                tg_embed = Embed(color=0xc8a2c8, title=f"{channel}...'s  {data_window}D Summary",
+                tg_embed = Embed(color=0xc8a2c8, title=f"{channel}'s  {data_window}D Summary",
                                  description='In-Depth Breakdown')
                 tg_embed.set_footer(text=f"BlockSight",
                                     icon_url="https://cdn.discordapp.com/attachments/"
                                              "1184131101782970398/1189235897288372244/BSL_Gradient.png")
-
-                print('RESPONSE EMBED MADE')
 
                 try:
                     tg_embed.add_field(name=f'Overall Rank: {grades['overall_grade']}',
@@ -470,8 +465,14 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
                 try:
                     tg_embed.add_field(name=f'Simulated PnL: {grades['pnl_grade']}',
-                                       value=f'${round((grades['pnl'] / window), 2) * await get_sol_price()}'
+                                       value=f'${round(((grades['pnl'] / window) * await get_sol_price()), 2)}'
                                              f' in daily profits with 1 SOL per trade.')
+
+                    tg_embed.add_field(name="", value='', inline=False)
+
+                    tg_embed.add_field(name="",
+                                       value=f'[Join Channel](https://t.me/f{channel})',
+                                       inline=False)
                 except Exception as e:
                     print(e)
                     raise e

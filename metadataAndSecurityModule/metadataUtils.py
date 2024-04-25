@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db
 
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
-rpc_url = 'https://multi-still-haze.solana-mainnet.quiknode.pro/31a3baf7ec201b729d156f47b25ca0cd7390c256/'
+rpc_url = f'https://mainnet.helius-rpc.com/?api-key={helius_api_key}'
 
 
 async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'):
@@ -45,15 +45,6 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
         return 200
-
-
-# LP PERCENTAGE BURN AND LOCK
-async def get_just_supply(token_mint: str, api_key=helius_api_key):
-    # TODO get supply from db (if not in db
-    # fetch, add to db and re-get from db
-
-    pass
-    return 1
 
 
 async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30, tx_type=''):
@@ -546,6 +537,8 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
             'decimals': decimals
         }
 
+    # TODO Calculate LP Supply and use it to calculate LP Burns
+
     slot = deploy_tx[0]['slot']
     deploy_sig = deploy_tx[0]['signature']
 
@@ -625,22 +618,12 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
     if deployer in ['TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM']:
         airdropped = 0.00
 
-    if airdropped >= 100 or airdropped <= -100:
-        airdropped = None
+    airdropped = None if abs(airdropped) >= 100 else airdropped
+    bundled = None if abs(bundled) >= 100 else bundled
 
-    if bundled >= 100 or bundled <= -100:
-        bundled = None
-
-    print(f'Airdropped: {airdropped}%')
-
-    if not twitter:
-        twitter = [None]
-
-    if not telegram:
-        telegram = [None]
-
-    if not other_links:
-        other_links = [None]
+    twitter = [None] if not twitter else twitter
+    telegram = [None] if not telegram else telegram
+    other_links = [None] if not other_links else other_links
 
     payload = {
         'token_mint': token_mint,
@@ -669,9 +652,10 @@ async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=
         # print(token_mint)
         metadata = await retrieve_metadata(token_mint, session=session)
 
+        '''
         if not metadata:
             # TODO -> add a record that logs the bad token so that we can early exit if we see it again.
-            '''
+
             metadata = {
                 'token_mint': token_mint,
                 'symbol': symbol,
@@ -689,14 +673,16 @@ async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=
                 'supply': supply,
                 'decimals': decimals
             }
-            '''
+
 
             pprint(f'{token_mint} DOES NOT HAVE VALID METADATA')
             return
+        '''
 
         # Add metadata to db
         try:
             await add_metadata_to_db(metadata, pool=pool)  # TODO -> I/O that we can optimize
+            return metadata
         except Exception as metadata_error:
             pprint('METADATA ERROR')
             pprint(metadata_error)
@@ -897,46 +883,4 @@ async def get_num_holders(mint='', helius_key=helius_api_key):
         return len(all_owners)
 
 
-async def get_top_holder_percentages(mint: str = "", helius_key: str = helius_api_key):
-    """
-    Asynchronously fetches the 20 largest accounts for a specified SPL Token mint.
 
-    Args:
-    - mint_address (str): The base-58 encoded public key of the SPL Token Mint.
-    - cluster_url (str, optional): URL of the Solana cluster to query. Defaults to mainnet-beta.
-
-    Returns:
-    - list: A list of dictionaries containing the 20 largest accounts for the specified SPL Token.
-    """
-
-    supply = await get_just_supply(mint)
-
-    # Initialize the Solana RPC client
-    cluster_url = f'https://mainnet.helius-rpc.com/?api-key={helius_key}'
-    cluster_url = rpc_url
-
-    client = Client(cluster_url)
-
-    # Convert the mint address string to a Pubkey object
-    mint_pubkey = Pubkey.from_string(mint)
-
-    # Fetch the 20 largest accounts
-    try:
-        data = ast.literal_eval(client.get_token_largest_accounts(mint_pubkey).to_json())['result']['value']
-    except Exception as e:
-        await asyncio.sleep(3)
-        data = ast.literal_eval(client.get_token_largest_accounts(mint_pubkey).to_json())['result']['value']
-        print(e)
-
-    data = [{k: v for k, v in d.items() if k == 'uiAmount'} for d in data]
-    data = [d['uiAmount'] for d in data]
-    try:
-        top_10 = round((sum(data[0:10]) / supply * 100), 2)
-        top_20 = round((sum(data) / supply * 100), 2)
-    except TypeError:
-        top_10 = 100.0
-        top_20 = 100.0
-    return {
-        'top_10': top_10,
-        'top_20': top_20
-    }

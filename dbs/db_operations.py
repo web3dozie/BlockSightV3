@@ -1,3 +1,5 @@
+from pprint import pprint
+
 import asyncpg, backoff
 
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
@@ -197,20 +199,20 @@ async def get_metadata_from_db(token_mint, db_url=pg_db_url):
             # Construct the dictionary from the row, asyncpg returns a Record which can be accessed similarly to a dict
             data = {
                 'token_mint': row['token_mint'],
-                'symbol': ['symbol'],
-                'name': ['name'],
-                'img_url': ['img_url'],
-                'starting_mc': ['starting_mc'],
-                'starting_liq': ['starting_liq'],
-                'twitter': ['twitter'],
-                'telegram': ['telegram'],
-                'other_links': ['other_links'],
-                'lp_creation_time': ['lp_creation_time'],
-                'deployer': ['deployer'],
-                'bundled': ['bundled'],
-                'airdropped': ['airdropped'],
-                'supply': ['supply'],
-                'decimals': ['decimals']
+                'symbol': row['symbol'],
+                'name': row['name'],
+                'img_url': row['img_url'],
+                'starting_mc': row['starting_mc'],
+                'starting_liq': row['starting_liq'],
+                'twitter': row['twitter'],
+                'telegram': row['telegram'],
+                'other_links': row['other_links'],
+                'lp_creation_time': row['lp_creation_time'],
+                'deployer': row['deployer'],
+                'bundled': row['bundled'],
+                'airdropped': row['airdropped'],
+                'supply': row['supply'],
+                'decimals': row['decimals']
             }
             return data
         else:

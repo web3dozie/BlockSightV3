@@ -162,7 +162,8 @@ async def handle_discord_redirect():
         print(f"Exception {e} while adding user info to db")
         return "Internal Server Error", 500
 
-    return "<p>You've signed up successfully! <a href='https://discord.gg/blocksight'>Join the discord server</a> and verify to use the Telegram bot</p>"
+    return ("<p>You've signed up successfully! <a href='https://discord.gg/blocksight'>Join the discord server</a>"
+            " and verify to use the Telegram bot</p>")
 
 
 if __name__ == '__main__':

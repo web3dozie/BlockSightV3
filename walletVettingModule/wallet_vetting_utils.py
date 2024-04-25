@@ -413,13 +413,73 @@ def generate_trader_message(data):
 
 
 def generate_tg_message(data):
-    '''
     grade = data['overall_grade']
     pnl = data['pnl_grade']
     frequency = data['trades_grade']
     win_rate = data['win_rate_grade']
-    '''
-    return 'Hiii'
+
+    if grade == 'SS':
+        return random.choice([
+            'This caller is a gift to Solana.',
+            'Who are you and why are you so perfect?',
+            'A bona fide money printer, ape everything they call.'
+        ])
+
+    elif grade == 'S':
+        if frequency != 'S':
+            if frequency in ['F', 'C']:
+                return 'You\'re a winner, but you really love to play it safe, huh?'
+            return random.choice([
+                'You\'re amazing, I just wish you made a few more calls.',
+                'Every degen should worship you. Just make a few more calls.'
+            ])
+        return 'Top tier performance! Keep up the great calls!'
+
+    elif grade == 'A':
+        if frequency in ['C', 'F']:
+            return random.choice([
+                'You\'re doing okay, but you need to make more calls.',
+                'Nice calls! Making more good calls should give you a boost.'
+            ])
+        elif frequency in ['A', 'B']:
+            return random.choice([
+                'Solid performance with consistent results!',
+                'You\'re managing well, just a bit more activity could skyrocket your results!'
+            ])
+        return 'Great job! You’re on your way to the top tiers.'
+
+    elif grade == 'B':
+        if frequency in ['C', 'F']:
+            return random.choice([
+                'Decent effort! Increasing your trade frequency might help.',
+                'You’ve got potential; just need to take more action!'
+            ])
+        elif frequency in ['A', 'B']:
+            return random.choice([
+                'Good foundation! A little tweak here and there could make a big difference.',
+                'You\'re on the right track, now push a little harder to improve your calls.'
+            ])
+        return 'Not bad at all, but there’s room for improvement.'
+
+    elif grade == 'C':
+        if frequency in ['S', 'A']:
+            return random.choice([
+                'You’re quite active, which is great! Now let’s focus on making each call count.',
+                'Activity isn’t your issue; it’s time to improve the quality of those calls.'
+            ])
+        elif frequency in ['C', 'F']:
+            return random.choice([
+                'Needs improvement, but keep pushing! Focus on both the quality and quantity of calls.',
+                'More activity could help, but also revisit your strategies.'
+            ])
+        return 'Keep pushing! Consistency and quality need some work.'
+
+    elif grade == 'F':
+        return random.choice([
+            'This caller is really really bad. Don\'t waste time or money with this channel.',
+            'What a waste of time lmao. I\'m a bot and I almost puked after looking at his channel.',
+            'Nope, just nope.'
+        ])
 
 
 async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111111112') -> float:
@@ -908,7 +968,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
             except Exception as e:
                 retries += 1
-                print(f"Error: {e}, retrying in {retries * 5} seconds...")
+                print(f"Error: in get_wallet_txs: {e}, retrying in {retries * 5} seconds...")
                 await asyncio.sleep(retries * 5)
 
             if retries >= max_retries:
@@ -953,8 +1013,9 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
 
         query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
 
-        rows = await conn.fetch(query, wallet, start_time,
-                                end_time)  # TODO -> Some I/O here check later for improvements
+        rows = await conn.fetch(query, wallet, start_time, end_time)
+
+        # TODO -> Some I/O here check later for improvements
         swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
 
