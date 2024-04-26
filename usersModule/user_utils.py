@@ -49,7 +49,7 @@ async def get_max_role(client: discord.Client, user: discord.User):
     return max_role.name if max_role else None
 
 
-async def update_max_role(username: str, role: str, db_path: str = pg_db_url):
+async def update_max_role(username: str, role: str, db_path: str = pg_db_url, pool=None):
     conn = await asyncpg.connect(db_path)
     try:
         await conn.execute(
@@ -105,9 +105,11 @@ async def assign_role(client, user: discord.User, role_id: int):
         return 0
 
 
-async def discord_command_executor(text: str, user: discord.User, client: discord.Client, message: discord.Message):
+async def discord_command_executor(text: str, user, client: discord.Client, message: discord.Message, pool=None):
     """
         This function executes commands and returns responses for sending
+        :param pool:
+        :param message:
         :param client:
         :param user:
         :param text:
@@ -155,7 +157,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         # ??my_info command
 
     elif text.startswith('.my_info'):
-        info = await get_user_data(user.name)
+        info = await get_user_data(user.name, pool=pool)
 
         embed = Embed(title=f"{user.name}'s Info.", color=0xc8a2c8)
         embed.set_footer(text=f"BlockSight",
@@ -164,7 +166,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
         max_role = await get_max_role(client, user)
 
-        await update_max_role(user.name, max_role)
+        await update_max_role(user.name, max_role, pool=pool)
         embed.set_thumbnail(url=user.avatar)
 
         embed.add_field(name=f'Wallet:', value=info['wallet'])
@@ -249,11 +251,11 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
         valid_data = check_data(col_name, col_data)
 
         if valid_data:
-            updated = await edit_user_data(user.name, col_data, col_name)
+            updated = await edit_user_data(user.name, col_data, col_name, pool=pool)
 
             if updated:
                 link_embed = valid_embed(link_embed, col_name)
-                await adjust_points(user.name, 5)
+                await adjust_points(user.name, 5, pool=pool)
                 return '', link_embed
             else:
                 link_embed = no_edits_embed(link_embed, col_name)
@@ -283,7 +285,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
         use_code_embed = Embed(color=0xc8a2c8)
 
-        successful = await use_referral_code(user, code, client)
+        successful = await use_referral_code(user, code, client, pool=pool)
 
         use_code_embed = success_embed(use_code_embed, code, successful)
 
@@ -309,7 +311,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
         create_code_embed = Embed(color=0xc8a2c8)
 
-        successful = await create_referral_code(user.name, code)
+        successful = await create_referral_code(user.name, code, pool=pool)
 
         create_code_embed = success_embed(create_code_embed, code, successful)
 
@@ -331,7 +333,7 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
                               icon_url="https://cdn.discordapp.com/attachments/"
                                        "1184131101782970398/1189235897288372244/BSL_Gradient.png")
 
-        await adjust_credits(user.name, 5)  # add 5 credits
+        await adjust_credits(user.name, 5, pool=pool)  # subtract 5 credits
 
         if is_valid_wallet(data_to_scan):
             scan_message = await message.channel.send(content='', embed=scan_embed)
@@ -377,8 +379,8 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
                 return wallet_scan_embed
 
-            if not await wallet_exists(data_to_scan):
-                await adjust_points(user.name, 20)
+            if not await wallet_exists(data_to_scan, pool=pool):
+                await adjust_points(user.name, 20, pool=pool)
 
             summary = {}
             async with aiohttp.ClientSession() as session:
@@ -542,50 +544,90 @@ async def discord_command_executor(text: str, user: discord.User, client: discor
 
 
 async def add_user_to_db(username: str, user_id: int | None, current_plan='FREE', plan_end_date=9999999999,
-                         db_path=pg_db_url, tg_id: int | None = None):
-    if db_path is None:
-        raise ValueError("Database path must be provided")
+                         db_path=pg_db_url, tg_id: int | None = None, pool=None):
 
-    conn = await asyncpg.connect(db_path)
-    try:
-        async with conn.transaction():
-            await conn.execute(
-                """
-                INSERT INTO users (username, current_plan, plan_end_date, points, credits, user_id, telegram_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (username) DO UPDATE
-            SET telegram_id = EXCLUDED.telegram_id;
-                """,
-                username, current_plan, plan_end_date, 0, 1000, user_id, tg_id
-            )
-    except Exception as e:
-        # Add error handling or logging here
-        print(f"An error occurred while adding user: {e}")
-        raise e
-    finally:
-        await conn.close()
+    if pool:
+        async with pool.acquire() as conn:  # Use a connection from the pool
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO users (username, current_plan, plan_end_date, points, credits, user_id, telegram_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        ON CONFLICT (username) DO UPDATE
+                    SET telegram_id = EXCLUDED.telegram_id;
+                        """,
+                        username, current_plan, plan_end_date, 0, 1000, user_id, tg_id
+                    )
+            except Exception as e:
+                # Add error handling or logging here
+                print(f"An error occurred while adding user: {e}")
+                raise e
+            finally:
+                await conn.close()
+
+    else:
+        conn = await asyncpg.connect(db_path)
+        try:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO users (username, current_plan, plan_end_date, points, credits, user_id, telegram_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (username) DO UPDATE
+                SET telegram_id = EXCLUDED.telegram_id;
+                    """,
+                    username, current_plan, plan_end_date, 0, 1000, user_id, tg_id
+                )
+        except Exception as e:
+            # Add error handling or logging here
+            print(f"An error occurred while adding user: {e}")
+            raise e
+        finally:
+            await conn.close()
 
 
-async def get_user_data(username: str, db_path=pg_db_url):
-    conn = await asyncpg.connect(db_path)  # Connect to the database using the provided database URL
-    try:
-        # Retrieve the user's record
-        user_query = 'SELECT * FROM users WHERE username = $1;'
-        user_record = await conn.fetchrow(user_query, username)
+async def get_user_data(username: str, db_path=pg_db_url, pool=None):
+    if pool:
+        async with pool.acquire() as conn:  # Use a connection from the pool
+            try:
+                # Retrieve the user's record
+                user_query = 'SELECT * FROM users WHERE username = $1;'
+                user_record = await conn.fetchrow(user_query, username)
 
-        if user_record:
-            # Count referrals based on the user's referral code
-            referrals_query = 'SELECT COUNT(*) FROM users WHERE referral_used = $1;'
-            referrals_count = await conn.fetchval(referrals_query, user_record['referral_code'])
+                if user_record:
+                    # Count referrals based on the user's referral code
+                    referrals_query = 'SELECT COUNT(*) FROM users WHERE referral_used = $1;'
+                    referrals_count = await conn.fetchval(referrals_query, user_record['referral_code'])
 
-            # Combine user data and referrals count
-            data = dict(user_record)
-            data['referrals'] = referrals_count
-            pprint(data)
-            return data
-        else:
-            return {}
-    finally:
-        await conn.close()
+                    # Combine user data and referrals count
+                    data = dict(user_record)
+                    data['referrals'] = referrals_count
+                    pprint(data)
+                    return data
+                else:
+                    return {}
+            finally:
+                await conn.close()
+    else:
+        conn = await asyncpg.connect(db_path)  # Connect to the database using the provided database URL
+        try:
+            # Retrieve the user's record
+            user_query = 'SELECT * FROM users WHERE username = $1;'
+            user_record = await conn.fetchrow(user_query, username)
+
+            if user_record:
+                # Count referrals based on the user's referral code
+                referrals_query = 'SELECT COUNT(*) FROM users WHERE referral_used = $1;'
+                referrals_count = await conn.fetchval(referrals_query, user_record['referral_code'])
+
+                # Combine user data and referrals count
+                data = dict(user_record)
+                data['referrals'] = referrals_count
+                pprint(data)
+                return data
+            else:
+                return {}
+        finally:
+            await conn.close()
 
 
 async def get_all_users(db_path=pg_db_url):
@@ -600,73 +642,131 @@ async def get_all_users(db_path=pg_db_url):
         await conn.close()
 
 
-async def adjust_credits(username, amount, db_path=pg_db_url, spending=True):
+async def adjust_credits(username, amount, db_path=pg_db_url, spending=True, pool=None):
     # Returns a bool,
     # that will be used to show if a credit consuming operation is valid or not
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    # Fetch current credits and adjust in one step using a conditional update
+                    if spending:
+                        update_query = '''
+                        UPDATE users SET credits = credits - $1
+                        WHERE username = $2 AND credits >= $1
+                        RETURNING credits;
+                        '''
+                    else:
+                        update_query = '''
+                        UPDATE users SET credits = credits + $1
+                        WHERE username = $2
+                        RETURNING credits;
+                        '''
 
-    conn = await asyncpg.connect(db_path)
-    try:
-        async with conn.transaction():
-            # Fetch current credits and adjust in one step using a conditional update
-            if spending:
-                update_query = '''
-                UPDATE users SET credits = credits - $1
-                WHERE username = $2 AND credits >= $1
-                RETURNING credits;
-                '''
-            else:
-                update_query = '''
-                UPDATE users SET credits = credits + $1
-                WHERE username = $2
-                RETURNING credits;
-                '''
+                    new_credits = await conn.fetchval(update_query, amount, username)
 
-            new_credits = await conn.fetchval(update_query, amount, username)
+                    if new_credits is None:
+                        if spending:
+                            return False  # Insufficient funds
+                        else:
+                            return False  # Invalid user
 
-            if new_credits is None:
+                    return True  # Credits were spent/topped-up successfully
+            finally:
+                await conn.close()
+
+    else:
+        conn = await asyncpg.connect(db_path)
+        try:
+            async with conn.transaction():
+                # Fetch current credits and adjust in one step using a conditional update
                 if spending:
-                    return False  # Insufficient funds
+                    update_query = '''
+                    UPDATE users SET credits = credits - $1
+                    WHERE username = $2 AND credits >= $1
+                    RETURNING credits;
+                    '''
                 else:
-                    return False  # Invalid user
+                    update_query = '''
+                    UPDATE users SET credits = credits + $1
+                    WHERE username = $2
+                    RETURNING credits;
+                    '''
 
-            return True  # Credits were spent/topped-up successfully
-    finally:
-        await conn.close()
+                new_credits = await conn.fetchval(update_query, amount, username)
+
+                if new_credits is None:
+                    if spending:
+                        return False  # Insufficient funds
+                    else:
+                        return False  # Invalid user
+
+                return True  # Credits were spent/topped-up successfully
+        finally:
+            await conn.close()
 
 
-async def adjust_points(username, amount, multiplier=1, db_path=pg_db_url):
+async def adjust_points(username, amount, multiplier=1, db_path=pg_db_url, pool=None):
     # Randomised points increment, returns a bool to indicate if the operation was successful
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                # Calculate the lower and upper bounds of the range
+                lb = int(amount * 0.75)
+                ub = int(amount * 1.25)
 
-    conn = await asyncpg.connect(db_path)  # Connect to the database
-    try:
-        # Calculate the lower and upper bounds of the range
-        lb = int(amount * 0.75)
-        ub = int(amount * 1.25)
+                # Select a random integer from this range
+                random_points = random.choice(range(lb, ub + 1)) * multiplier
 
-        # Select a random integer from this range
-        random_points = random.choice(range(lb, ub + 1)) * multiplier
+                # Start a transaction
+                async with conn.transaction():
+                    # Update the user's points directly and return the new value
+                    update_query = '''
+                    UPDATE users
+                    SET points = points + $1
+                    WHERE username = $2
+                    RETURNING points;
+                    '''
 
-        # Start a transaction
-        async with conn.transaction():
-            # Update the user's points directly and return the new value
-            update_query = '''
-            UPDATE users
-            SET points = points + $1
-            WHERE username = $2
-            RETURNING points;
-            '''
+                    new_points = await conn.fetchval(update_query, random_points, username)
 
-            new_points = await conn.fetchval(update_query, random_points, username)
+                    if new_points is None:
+                        return False  # User not found or update failed
 
-            if new_points is None:
-                return False  # User not found or update failed
+                    return True  # Points were incremented successfully
+            finally:
+                await conn.close()
+    else:
+        conn = await asyncpg.connect(db_path)  # Connect to the database
+        try:
+            # Calculate the lower and upper bounds of the range
+            lb = int(amount * 0.75)
+            ub = int(amount * 1.25)
 
-            return True  # Points were incremented successfully
-    finally:
-        await conn.close()
+            # Select a random integer from this range
+            random_points = random.choice(range(lb, ub + 1)) * multiplier
+
+            # Start a transaction
+            async with conn.transaction():
+                # Update the user's points directly and return the new value
+                update_query = '''
+                UPDATE users
+                SET points = points + $1
+                WHERE username = $2
+                RETURNING points;
+                '''
+
+                new_points = await conn.fetchval(update_query, random_points, username)
+
+                if new_points is None:
+                    return False  # User not found or update failed
+
+                return True  # Points were incremented successfully
+        finally:
+            await conn.close()
 
 
-async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url):
+async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url, pool=None):
     # Define a dictionary mapping valid column names to their SQL-safe names
     valid_columns = {
         'twitter': 'twitter',
@@ -685,80 +785,152 @@ async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url):
     safe_col_name = valid_columns[col_name]
 
     # Connect to the database and perform the update
-    conn = await asyncpg.connect(db_path)
-    try:
-        # Prepare the query to update the specified column using the safe column name
-        query = f"UPDATE users SET {safe_col_name} = $1 WHERE username = $2 AND {safe_col_name} IS NULL;"
-        result = await conn.execute(query, new_data, username)
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                # Prepare the query to update the specified column using the safe column name
+                query = f"UPDATE users SET {safe_col_name} = $1 WHERE username = $2 AND {safe_col_name} IS NULL;"
+                result = await conn.execute(query, new_data, username)
 
-        # Check if the update was successful
-        return result == 'UPDATE 1'  # This checks if exactly one row was updated
-    finally:
-        await conn.close()
+                # Check if the update was successful
+                return result == 'UPDATE 1'  # This checks if exactly one row was updated
+            finally:
+                await conn.close()
+
+    else:
+        conn = await asyncpg.connect(db_path)
+        try:
+            # Prepare the query to update the specified column using the safe column name
+            query = f"UPDATE users SET {safe_col_name} = $1 WHERE username = $2 AND {safe_col_name} IS NULL;"
+            result = await conn.execute(query, new_data, username)
+
+            # Check if the update was successful
+            return result == 'UPDATE 1'  # This checks if exactly one row was updated
+        finally:
+            await conn.close()
 
 
-async def create_referral_code(username, code, db_path=pg_db_url):
+async def create_referral_code(username, code, db_path=pg_db_url, pool=None):
     # Check the length of the code
     if len(code) < 3 or len(code) > 15:
         return False  # Return False - Code is too short or too long
 
-    username = username.upper()
+    code = code.upper()
 
-    conn = await asyncpg.connect(db_path)  # Connect to the database
-    try:
-        # Prepare the query to update the referral_code column only if it is currently NULL
-        query = '''
-        UPDATE users SET referral_code = $1
-        WHERE username = $2 AND referral_code IS NULL
-        RETURNING referral_code;
-        '''
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                # Prepare the query to update the referral_code column only if it is currently NULL
+                query = '''
+                UPDATE users SET referral_code = $1
+                WHERE username = $2 AND referral_code IS NULL
+                RETURNING referral_code;
+                '''
 
-        # Execute the query
-        updated_code = await conn.fetchval(query, code, username)
+                # Execute the query
+                updated_code = await conn.fetchval(query, code, username)
 
-        # Check if the code was updated successfully
-        if updated_code == code:
-            await adjust_points(username, 30)
-            return True
-        else:
-            return False
-    finally:
-        await conn.close()
-
-
-async def use_referral_code(user: discord.User, code, client: discord.Client, db_path=pg_db_url):
-    conn = await asyncpg.connect(db_path)
-    try:
-        # Start a transaction
-        async with conn.transaction():
-            # Check if the code exists and the referral_code_used is NULL, then update it
-            update_query = '''
-            UPDATE users
-            SET referral_code_used = $1
-            WHERE username = $2 AND referral_code_used IS NULL
-            AND EXISTS (
-                SELECT 1 FROM users WHERE referral_code = $1
-            )
-            RETURNING username;
+                # Check if the code was updated successfully
+                if updated_code == code:
+                    await adjust_points(username, 30)
+                    return True
+                else:
+                    return False
+            finally:
+                await conn.close()
+    else:
+        conn = await asyncpg.connect(db_path)  # Connect to the database
+        try:
+            # Prepare the query to update the referral_code column only if it is currently NULL
+            query = '''
+            UPDATE users SET referral_code = $1
+            WHERE username = $2 AND referral_code IS NULL
+            RETURNING referral_code;
             '''
 
-            result = await conn.fetchval(update_query, code, user.name)
+            # Execute the query
+            updated_code = await conn.fetchval(query, code, username)
 
-            # If the referral code was used successfully
-            if result:
-                # Fetch the username of the referrer
-                referrer_query = 'SELECT username FROM users WHERE referral_code = $1;'
-                referrer_username = await conn.fetchval(referrer_query, code)
+            # Check if the code was updated successfully
+            if updated_code == code:
+                await adjust_points(username, 30)
+                return True
+            else:
+                return False
+        finally:
+            await conn.close()
 
-                # Adjust points for both the referrer and the new user
-                if referrer_username:
-                    await adjust_points(referrer_username, 300)  # Referrer gets 300 points
-                    await adjust_points(user.name, 75)  # New user gets 75 points
 
-                    await assign_role(client, user, BETA_ROLE)
+async def use_referral_code(user: discord.User, code, client: discord.Client, db_path=pg_db_url, pool=None):
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                # Start a transaction
+                async with conn.transaction():
+                    # Check if the code exists and the referral_code_used is NULL, then update it
+                    update_query = '''
+                    UPDATE users
+                    SET referral_code_used = $1
+                    WHERE username = $2 AND referral_code_used IS NULL
+                    AND EXISTS (
+                        SELECT 1 FROM users WHERE referral_code = $1
+                    )
+                    RETURNING username;
+                    '''
 
-                    return True
+                    result = await conn.fetchval(update_query, code, user.name)
 
-            return False  # If the operation was not successful
-    finally:
-        await conn.close()
+                    # If the referral code was used successfully
+                    if result:
+                        # Fetch the username of the referrer
+                        referrer_query = 'SELECT username FROM users WHERE referral_code = $1;'
+                        referrer_username = await conn.fetchval(referrer_query, code)
+
+                        # Adjust points for both the referrer and the new user
+                        if referrer_username:
+                            await adjust_points(referrer_username, 300)  # Referrer gets 300 points
+                            await adjust_points(user.name, 75)  # New user gets 75 points
+
+                            await assign_role(client, user, BETA_ROLE)
+
+                            return True
+
+                    return False  # If the operation was not successful
+            finally:
+                await conn.close()
+    else:
+        conn = await asyncpg.connect(db_path)
+        try:
+            # Start a transaction
+            async with conn.transaction():
+                # Check if the code exists and the referral_code_used is NULL, then update it
+                update_query = '''
+                UPDATE users
+                SET referral_code_used = $1
+                WHERE username = $2 AND referral_code_used IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM users WHERE referral_code = $1
+                )
+                RETURNING username;
+                '''
+
+                result = await conn.fetchval(update_query, code, user.name)
+
+                # If the referral code was used successfully
+                if result:
+                    # Fetch the username of the referrer
+                    referrer_query = 'SELECT username FROM users WHERE referral_code = $1;'
+                    referrer_username = await conn.fetchval(referrer_query, code)
+
+                    # Adjust points for both the referrer and the new user
+                    if referrer_username:
+                        await adjust_points(referrer_username, 300)  # Referrer gets 300 points
+                        await adjust_points(user.name, 75)  # New user gets 75 points
+
+                        await assign_role(client, user, BETA_ROLE)
+
+                        return True
+
+                return False  # If the operation was not successful
+        finally:
+            await conn.close()

@@ -316,7 +316,6 @@ def determine_tg_grade(trades: int, win_rate: float, window=30) -> dict:
 
 
 def generate_trader_message(data):
-
     grade = data['overall_grade']
     pnl = data['pnl_grade']
     frequency = data['trades_grade']
@@ -600,11 +599,13 @@ async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
         await conn.close()  # Ensure the connection is closed
 
 
-async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, window:int=30) -> bool:
+async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, window: int = 30, pool=None) -> bool:
     """
     Check if the wallet data in the database is outdated (older than 1 day).
 
     Args:
+        pool: pg pool
+        window:
         wallet_address (str): The wallet address to check.
         db_url (str): Database connection URL.
 
@@ -615,25 +616,45 @@ async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, windo
     one_day_ago = int(time.time()) - (24 * 60 * 60)
     window = f"{window}d"
 
-    # Connect to the PostgreSQL database asynchronously
-    conn = await asyncpg.connect(dsn=db_url)
-    try:
-        # Prepare the SELECT statement to find the last_checked value for the given wallet
-        query = """
-        SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
-        """
-        # Execute the query
-        result = await conn.fetchval(query, wallet_address, window)
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                # Prepare the SELECT statement to find the last_checked value for the given wallet
+                query = """
+                SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
+                """
+                # Execute the query
+                result = await conn.fetchval(query, wallet_address, window)
 
-        # Check if the wallet was found and if its last_checked is older than one day ago
-        if not result:
-            return True
-        elif result < one_day_ago:
-            return True
-        else:
-            return False
-    finally:
-        await conn.close()  # Ensure the connection is closed
+                # Check if the wallet was found and if its last_checked is older than one day ago
+                if not result:
+                    return True
+                elif result < one_day_ago:
+                    return True
+                else:
+                    return False
+            finally:
+                await conn.close()  # Ensure the connection is closed
+    else:
+        # Connect to the PostgreSQL database asynchronously
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            # Prepare the SELECT statement to find the last_checked value for the given wallet
+            query = """
+            SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
+            """
+            # Execute the query
+            result = await conn.fetchval(query, wallet_address, window)
+
+            # Check if the wallet was found and if its last_checked is older than one day ago
+            if not result:
+                return True
+            elif result < one_day_ago:
+                return True
+            else:
+                return False
+        finally:
+            await conn.close()  # Ensure the connection is closed
 
 
 # DONE -> Fix data retrieval
@@ -672,22 +693,23 @@ async def get_wallet_data(wallet_address: str, db_url: str = pg_db_url) -> dict:
         await conn.close()  # Ensure the connection is closed
 
 
-async def process_wallet(wallet_address: str, window: int = 30) -> dict:
+async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> dict:
     """
     Process a wallet by fetching transactions, calculating PnL, and updating the database.
 
     Args:
+        pool:
         wallet_address (str): The wallet address to process.
         window (int): The number of days to consider for transaction history.
 
     Returns:
         dict: A dictionary containing the processed wallet summary.
     """
-    if await is_wallet_outdated(wallet_address, window=window):
+    if await is_wallet_outdated(wallet_address, window=window, pool=pool):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
         try:
-            thirty_day_swaps = await get_wallet_txs(wallet_address, window=window)
+            thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, pool=pool)
         except Exception as e:
             raise e
         print('FETCHED TXS')
@@ -899,8 +921,11 @@ async def parse_tx_get_swaps(tx: dict):
 # DONE
 # "window should be 1, 7, or 30. represents no. of days to fetch txs for"
 
-async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=30):
-    conn = await asyncpg.connect(dsn=db_url)
+async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=30, pool=None):
+    if pool:
+        conn = await pool.acquire()
+    else:
+        conn = await asyncpg.connect(dsn=db_url)
 
     # Fetching the latest transaction timestamp for the wallet
     query = "SELECT MAX(timestamp) FROM txs WHERE wallet = $1"
@@ -953,7 +978,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
                             for tx in tx_data_batch:
 
                                 if last_db_tx_timestamp and tx[
-                                    'timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
+                                                             'timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
                                     continue
                                 tx_data.append(tx)
 
@@ -1023,7 +1048,6 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url
         print(f"Error {e} while running db insertion/retrieval operations for wallet {wallet}.")
         await conn.close()
         raise e
-        
 
     await conn.close()
     return swap_txs_in_window

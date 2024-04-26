@@ -10,7 +10,7 @@ async def predict_new_record(model, snapshots):
     pass
 
 
-async def wallet_exists(wallet_address, db_url=pg_db_url):
+async def wallet_exists(wallet_address, db_url=pg_db_url, pool=None):
     """
     Check if a wallet_address exists in the wallets table asynchronously using PostgreSQL.
 
@@ -19,18 +19,31 @@ async def wallet_exists(wallet_address, db_url=pg_db_url):
     :return: True if the wallet_address exists, False otherwise
     """
     try:
-        # Connect to the PostgreSQL database asynchronously
-        conn = await asyncpg.connect(dsn=db_url)
-        try:
-            # Prepare and execute the SQL query asynchronously
-            query = "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet = $1)"
-            exists = await conn.fetchval(query, wallet_address)
+        if pool:
+            async with pool.acquire() as conn:
+                try:
+                    # Prepare and execute the SQL query asynchronously
+                    query = "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet = $1)"
+                    exists = await conn.fetchval(query, wallet_address)
 
-            return bool(exists)
+                    return bool(exists)
 
-        finally:
-            # Ensure the database connection is closed
-            await conn.close()
+                finally:
+                    # Ensure the database connection is closed
+                    await conn.close()
+        else:
+            # Connect to the PostgreSQL database asynchronously
+            conn = await asyncpg.connect(dsn=db_url)
+            try:
+                # Prepare and execute the SQL query asynchronously
+                query = "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet = $1)"
+                exists = await conn.fetchval(query, wallet_address)
+
+                return bool(exists)
+
+            finally:
+                # Ensure the database connection is closed
+                await conn.close()
 
     except asyncpg.PostgresError as e:
         print(f"Database error: {e}")
@@ -70,27 +83,43 @@ async def channel_exists(channel, db_url=pg_db_url):
         return False
 
 
-async def user_exists(username: str, db_url=pg_db_url):
+async def user_exists(username: str, db_url=pg_db_url, pool=None):
     """
     Check if a username exists in the users table asynchronously using PostgreSQL.
 
+    :param pool:
     :param db_url: URL to the PostgreSQL database
     :param username: The username to check
     :return: True if the username exists, False otherwise
     """
+
     try:
         # Connect to the PostgreSQL database asynchronously
-        conn = await asyncpg.connect(dsn=db_url)
-        try:
-            # Prepare and execute the SQL query asynchronously
-            query = "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)"
-            exists = await conn.fetchval(query, username)
+        if pool:
+            async with pool.acquire() as conn:  # Use a connection from the pool
+                try:
+                    # Prepare and execute the SQL query asynchronously
+                    query = "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)"
+                    exists = await conn.fetchval(query, username)
 
-            return bool(exists)
+                    return bool(exists)
 
-        finally:
-            # Ensure the database connection is closed
-            await conn.close()
+                finally:
+                    # Ensure the database connection is closed
+                    await conn.close()
+
+        else:
+            conn = await asyncpg.connect(dsn=db_url)
+            try:
+                # Prepare and execute the SQL query asynchronously
+                query = "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)"
+                exists = await conn.fetchval(query, username)
+
+                return bool(exists)
+
+            finally:
+                # Ensure the database connection is closed
+                await conn.close()
 
     except asyncpg.PostgresError as e:
         print(f"Database error: {e}")
@@ -135,22 +164,21 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
     if pool:
         try:
             async with pool.acquire() as conn:  # Use a connection from the pool
-
                 # Start a transaction
                 async with conn.transaction():
                     # Insert into metadata table
                     await conn.execute('''
-                            INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter, telegram,
-                             other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                            INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter,
+                             telegram, other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals,
+                             lp_address, initial_lp_supply)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                             ON CONFLICT (token_mint) DO NOTHING
                         ''',
                                        data['token_mint'], data['symbol'], data['name'], data['img_url'],
-                                       data['starting_mc'],
-                                       data['starting_liq'],
-                                       data['twitter'], data['telegram'], data['other_links'], data['lp_creation_time'],
-                                       data['deployer'], data['bundled'], data['airdropped'], data['supply'],
-                                       data['decimals']
+                                       data['starting_mc'], data['starting_liq'], data['twitter'], data['telegram'],
+                                       data['other_links'], data['lp_creation_time'], data['deployer'], data['bundled'],
+                                       data['airdropped'], data['supply'], data['decimals'], data['lp_address'],
+                                       data['initial_lp_supply']
                                        )
         except Exception as e:
             print(f'An error occurred while adding metadata to db: {e}')
@@ -163,17 +191,17 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
             async with conn.transaction():
                 # Insert into metadata table
                 await conn.execute('''
-                    INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter, telegram,
-                     other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                    ON CONFLICT (token_mint) DO NOTHING
-                ''',
+                            INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter,
+                            telegram, other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals,
+                            lp_address, initial_lp_supply)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                            ON CONFLICT (token_mint) DO NOTHING
+                                        ''',
                                    data['token_mint'], data['symbol'], data['name'], data['img_url'],
-                                   data['starting_mc'],
-                                   data['starting_liq'],
-                                   data['twitter'], data['telegram'], data['other_links'], data['lp_creation_time'],
-                                   data['deployer'], data['bundled'], data['airdropped'], data['supply'],
-                                   data['decimals']
+                                   data['starting_mc'], data['starting_liq'], data['twitter'], data['telegram'],
+                                   data['other_links'], data['lp_creation_time'], data['deployer'], data['bundled'],
+                                   data['airdropped'], data['supply'], data['decimals'], data['lp_address'],
+                                   data['initial_lp_supply']
                                    )
 
         except Exception as e:
@@ -185,61 +213,114 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
 
 # DONE(update with new schema)
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def get_metadata_from_db(token_mint, db_url=pg_db_url):
-    # Connect to the PostgreSQL database asynchronously
-    conn = await asyncpg.connect(dsn=db_url)
-    try:
-        # Join the metadata and security tables to retrieve all necessary data
-        row = await conn.fetchrow('''
-            SELECT * FROM metadata
-            WHERE token_mint = $1
-        ''', token_mint)
+async def get_metadata_from_db(token_mint, db_url=pg_db_url, pool=None):
+    if pool:
+        async with pool.acquire() as conn:  # Use a connection from the pool
+            try:
+                row = await conn.fetchrow('''
+                    SELECT * FROM metadata
+                    WHERE token_mint = $1
+                ''', token_mint)
 
-        if row:
-            # Construct the dictionary from the row, asyncpg returns a Record which can be accessed similarly to a dict
-            data = {
-                'token_mint': row['token_mint'],
-                'symbol': row['symbol'],
-                'name': row['name'],
-                'img_url': row['img_url'],
-                'starting_mc': row['starting_mc'],
-                'starting_liq': row['starting_liq'],
-                'twitter': row['twitter'],
-                'telegram': row['telegram'],
-                'other_links': row['other_links'],
-                'lp_creation_time': row['lp_creation_time'],
-                'deployer': row['deployer'],
-                'bundled': row['bundled'],
-                'airdropped': row['airdropped'],
-                'supply': row['supply'],
-                'decimals': row['decimals']
-            }
-            return data
-        else:
-            return None
-    finally:
-        await conn.close()  # Ensure the connection is closed
+                if row:
+                    data = {
+                        'token_mint': row['token_mint'],
+                        'symbol': row['symbol'],
+                        'name': row['name'],
+                        'img_url': row['img_url'],
+                        'starting_mc': row['starting_mc'],
+                        'starting_liq': row['starting_liq'],
+                        'twitter': row['twitter'],
+                        'telegram': row['telegram'],
+                        'other_links': row['other_links'],
+                        'lp_creation_time': row['lp_creation_time'],
+                        'deployer': row['deployer'],
+                        'bundled': row['bundled'],
+                        'airdropped': row['airdropped'],
+                        'supply': row['supply'],
+                        'decimals': row['decimals'],
+                        'lp_address': row['lp_address'],
+                        'initial_lp_supply': row['initial_lp_supply']
+                    }
+                    return data
+                else:
+                    return None
+            finally:
+                await conn.close()  # Ensure the connection is closed
+
+    else:
+        # Connect to the PostgreSQL database asynchronously
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            # Join the metadata and security tables to retrieve all necessary data
+            row = await conn.fetchrow('''
+                SELECT * FROM metadata
+                WHERE token_mint = $1
+            ''', token_mint)
+
+            if row:
+                # Construct the dictionary from the row, asyncpg returns a Record which can be accessed similarly to a dict
+                data = {
+                    'token_mint': row['token_mint'],
+                    'symbol': row['symbol'],
+                    'name': row['name'],
+                    'img_url': row['img_url'],
+                    'starting_mc': row['starting_mc'],
+                    'starting_liq': row['starting_liq'],
+                    'twitter': row['twitter'],
+                    'telegram': row['telegram'],
+                    'other_links': row['other_links'],
+                    'lp_creation_time': row['lp_creation_time'],
+                    'deployer': row['deployer'],
+                    'bundled': row['bundled'],
+                    'airdropped': row['airdropped'],
+                    'supply': row['supply'],
+                    'decimals': row['decimals'],
+                    'lp_address': row['lp_address'],
+                    'initial_lp_supply': row['initial_lp_supply']
+                }
+                return data
+            else:
+                return None
+        finally:
+            await conn.close()  # Ensure the connection is closed
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
-async def update_txs_db(txs_data, db_url=pg_db_url):
+async def update_txs_db(txs_data, db_url=pg_db_url, pool=None):
     insert_sql = '''
         INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) 
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (txid) DO NOTHING
         '''
-    conn = await asyncpg.connect(dsn=db_url)
-    try:
-        async with conn.transaction():
-            txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
-                           tx['timestamp']) for tx in txs_data]
-            await conn.executemany(insert_sql, txs_tuples)
-    except Exception as e:  # Catch all exceptions, could be more specific if needed
-        print(f"An error occurred. \nWhere: update_txs_db(): \n{e}")
-        # asyncpg automatically rolls back the transaction in case of errors within the context manager
-        raise  # Reraise the exception to trigger the backoff
-    finally:
-        await conn.close()  # Ensure the connection is always closed
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    txs_tuples = [
+                        (tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
+                         tx['timestamp']) for tx in txs_data]
+                    await conn.executemany(insert_sql, txs_tuples)
+            except Exception as e:  # Catch all exceptions, could be more specific if needed
+                print(f"An error occurred. \nWhere: update_txs_db(): \n{e}")
+                # asyncpg automatically rolls back the transaction in case of errors within the context manager
+                raise  # Reraise the exception to trigger the backoff
+            finally:
+                await conn.close()  # Ensure the connection is always closed
+
+    else:
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            async with conn.transaction():
+                txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
+                               tx['timestamp']) for tx in txs_data]
+                await conn.executemany(insert_sql, txs_tuples)
+        except Exception as e:  # Catch all exceptions, could be more specific if needed
+            print(f"An error occurred. \nWhere: update_txs_db(): \n{e}")
+            # asyncpg automatically rolls back the transaction in case of errors within the context manager
+            raise  # Reraise the exception to trigger the backoff
+        finally:
+            await conn.close()  # Ensure the connection is always closed
 
 
 async def useful_wallets(db_path=pg_db_url):
@@ -250,8 +331,8 @@ async def useful_wallets(db_path=pg_db_url):
     pass
 
 
-async def get_symbol_with_mint(mint):
-    data = await get_metadata_from_db(mint)
+async def get_symbol_with_mint(mint, pool=None):
+    data = await get_metadata_from_db(mint, pool=pool)
     return data['symbol']
 
 

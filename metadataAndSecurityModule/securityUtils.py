@@ -3,13 +3,14 @@ import random, re, time, aiohttp, asyncio, ast
 
 from pprint import pprint
 
+import asyncpg
 from solana.exceptions import SolanaRpcException
 from solana.rpc.api import Client
 from solana.rpc.commitment import Commitment
 from solana.rpc.core import RPCException
 from solders.pubkey import Pubkey
 from datetime import datetime, timedelta
-from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db
+from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db, pg_db_url
 from metadataAndSecurityModule.metadataUtils import retrieve_metadata, get_data_from_helius, get_metadata
 
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
@@ -17,9 +18,23 @@ rpc_url = f'https://mainnet.helius-rpc.com/?api-key={helius_api_key}'
 
 
 # LP PERCENTAGE BURN AND LOCK
-async def get_initial_supply(token_mint: str):
-    data = await get_metadata(token_mint)
-    pprint(data)
+async def get_initial_lp_supply(token_mint: str, pool=None):
+    data = await get_metadata(token_mint, pool=pool)
+    return data['initial_lp_supply']
+
+
+async def get_lp_burnt(token_mint: str, pool=None):
+    lp_address = await get_metadata(token_mint, pool=pool)
+    lp_address = lp_address['lp_address']
+
+    data = await get_data_from_helius(lp_address)
+    decimals = data['token_info']['decimals']
+
+    return round(((data['token_info']['supply']) / (10 ** decimals)), 2)
+
+
+async def get_just_supply(token_mint: str, pool=None):
+    data = await get_metadata(token_mint, pool=pool)
     return data['supply']
 
 
@@ -66,15 +81,13 @@ async def get_top_holder_percentages(token_mint: str):
 
 async def get_mintable_mutable_supply(token_mint: str):
     data = await get_data_from_helius(token_mint)
-    pprint(data)
-
-    initial_supply = await get_initial_supply(token_mint)
-    current_supply = round(data.get('token_info').get('supply') / (10 ** data.get('token_info').get('decimals')), 2)
 
     mintable = data.get('token_info')
     mintable = mintable.get('mint_authority')
-    if mintable: mintable = True
-    else: mintable = False
+    if mintable:
+        mintable = True
+    else:
+        mintable = False
 
     return {
         'is_mutable': data.get('mutable'),
@@ -82,7 +95,20 @@ async def get_mintable_mutable_supply(token_mint: str):
     }
 
 
-async def get_security():
+async def get_security(token_mint):
     return
 
-asyncio.run(get_mintable_mutable_supply('5ubQ73q7aSjvrGZ2KsQogwngrzGcYzF47Jw18bEVNpjD'))
+
+async def main():
+    pool = await asyncpg.create_pool(dsn=pg_db_url)
+    # session = aiohttp.ClientSession()
+
+    start = float(time.time())
+    await get_metadata('8GYGViQWHX7ZYunCUiyXKo5dp3KobcN2gqKoHDyqDYW', pool=pool)  # , session=session)
+    end = float(time.time())
+    # await session.close()
+
+    print(f'Time taken: {end - start}')
+
+
+asyncio.run(main())

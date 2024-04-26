@@ -286,9 +286,9 @@ async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
 
                 return data
             else:
-                async with session.post(url, json={"transactions": tx_list}) as response:
-                    data = await response.json()
-                    return data
+                response = await session.post(url, json={"transactions": tx_list})
+                data = await response.json()
+                return data
 
         except aiohttp.client_exceptions.ServerDisconnectedError as e:
             print(f"Server disconnected. Retrying... ({attempt + 1}/{max_attempts})")
@@ -340,7 +340,7 @@ async def get_data_from_helius(token_mint, api_key=helius_api_key):
 
 
 async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=None):
-    result = await get_data_from_helius(token_mint, api_key)
+    result = await get_data_from_helius(token_mint, api_key) # TODO USE SESSION HERE
 
     try:
         symbol = result['content']['metadata']['symbol']
@@ -534,10 +534,15 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
             'bundled': None,
             'airdropped': None,
             'supply': supply,
-            'decimals': decimals
+            'decimals': decimals,
+            'lp_address': None,
+            'initial_lp_supply': None
         }
 
     # TODO Calculate LP Supply and use it to calculate LP Burns
+    deploy_trf = deploy_tx[0]['tokenTransfers'][-1]
+    lp_address = deploy_trf['mint']
+    initial_lp_supply = deploy_trf['tokenAmount']
 
     slot = deploy_tx[0]['slot']
     deploy_sig = deploy_tx[0]['signature']
@@ -640,7 +645,9 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
         'bundled': bundled,
         'airdropped': airdropped,
         'supply': supply,
-        'decimals': decimals
+        'decimals': decimals,
+        'lp_address': lp_address,
+        'initial_lp_supply': initial_lp_supply
     }
     return payload
 
@@ -691,7 +698,7 @@ async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=
     else:
         if regular_use:
             # retrieve metadata from db
-            metadata = await get_metadata_from_db(token_mint)  # TODO I/O that we can skip/optimise
+            metadata = await get_metadata_from_db(token_mint, pool=pool)  # TODO I/O that we can skip/optimise
             return metadata
         else:
             return None

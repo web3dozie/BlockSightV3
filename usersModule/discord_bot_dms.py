@@ -1,9 +1,10 @@
 from pprint import pprint
 
+import asyncpg
 import discord, asyncio
 from discord import Embed
 
-from dbs.db_operations import user_exists
+from dbs.db_operations import user_exists, pg_db_url
 from usersModule.user_utils import discord_command_executor, add_user_to_db
 
 BOT_TOKEN = 'MTIwNDgyMDc3MjM1OTc2NjA2Ng.GRhhu0.3zkLNrB7dzcPcou_309mKRQ0WWDFbFqwg2pjlg'
@@ -34,11 +35,13 @@ class CompanionBot:
         self.honorary_role = HONORARY_ROLE
 
         self.guild = self.client.get_guild(self.blocksight_server_id)
+        self.pool = None
 
         @self.client.event
         async def on_ready():
             print(f'We have logged in as {self.client.user}')
             self.guild = self.client.get_guild(self.blocksight_server_id)
+            self.pool = await asyncpg.create_pool(dsn=pg_db_url)
 
         @self.client.event
         async def on_message(message):
@@ -53,8 +56,8 @@ class CompanionBot:
                 text = message.content
 
                 # Check if the user is in the DB. If not, prompt to sign-up
-                if not await user_exists(user.name):
-                    await add_user_to_db(user.name, user.id)
+                if not await user_exists(user.name, pool=self.pool):
+                    await add_user_to_db(user.name, user.id, pool=self.pool)
 
                 if self.guild:
                     member = self.guild.get_member(user.id)

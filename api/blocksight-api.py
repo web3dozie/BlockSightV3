@@ -1,4 +1,8 @@
-from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, generate_trader_message, is_valid_wallet
+import asyncpg
+
+from dbs.db_operations import pg_db_url
+from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, \
+    generate_trader_message, is_valid_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel
@@ -6,10 +10,16 @@ from usersModule.user_utils import add_user_to_db
 from telegram import telegram_blueprint
 import aiohttp, json
 
-from flask import Flask, request, jsonify, make_response
+# from flask import Flask, request, jsonify, make_response
+from quart import Quart, request, jsonify, make_response
 
-app = Flask(__name__)
+app = Quart(__name__)
 app.register_blueprint(telegram_blueprint, url_prefix="/telegram")
+
+
+@app.before_serving
+async def create_pool():
+    app.pool = await asyncpg.create_pool(dsn=pg_db_url)
 
 
 @app.after_request
@@ -25,15 +35,16 @@ async def analyse_wallet(wallet_address):
     if not is_valid_wallet(wallet_address):
         return "Invalid wallet", 400
     try:
-        wallet_data = await process_wallet(wallet_address, window)
+        wallet_data = await process_wallet(wallet_address, window, pool=app.pool)
         if not format:
             return wallet_data
-        
+
         grades = determine_wallet_grade(wallet_data['trades'], float(wallet_data['win_rate']),
-                                                float(wallet_data['avg_size']), float(wallet_data['pnl']),
-                                                window=window)
+                                        float(wallet_data['avg_size']), float(wallet_data['pnl']),
+                                        window=window)
+
         trader_message = generate_trader_message(grades)
-        return {"stats":wallet_data, "grades":grades, "msg":trader_message}
+        return {"stats": wallet_data, "grades": grades, "msg": trader_message}
     except Exception as e:
         return f"Internal Server Error: {str(e)}", 5000
 
@@ -84,9 +95,9 @@ async def vet_channel(tg_channel):
         print('VET SUCCEEDED')
         if not format:
             return retv
-        
+
         grades = determine_tg_grade(retv["trade_count"], retv["win_rate"], retv["time_window"])
-        return {"stats": retv, "grades":grades}
+        return {"stats": retv, "grades": grades}
     except Exception as e:
         print('VET FAILED')
         print(f"Error {e} while vetting channel {tg_channel}")
