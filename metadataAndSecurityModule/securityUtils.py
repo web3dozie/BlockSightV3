@@ -17,86 +17,54 @@ helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 rpc_url = f'https://mainnet.helius-rpc.com/?api-key={helius_api_key}'
 
 
-# LP PERCENTAGE BURN AND LOCK
-async def get_initial_lp_supply(token_mint: str, pool=None):
-    data = await get_metadata(token_mint, pool=pool)
-    return data['initial_lp_supply']
+async def get_security(token_mint, pool=None):
+    # ------ Initialize token data and metadata ----- #
+    token_data = await get_data_from_helius(token_mint)
+    token_decimals = token_data['token_info']['decimals']
+    token_supply = round(((token_data['token_info']['supply']) / (10 ** token_decimals)), 2)
+    token_metadata = await get_metadata(token_mint, pool=pool)
+    pprint(token_metadata)
+    # ------                         ----- #
 
+    # ------ Get lp address and data ----- #
+    if token_metadata['deployer'] == 'TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM':
+        lp_current_supply = 0
+        lp_initial_supply = 1
+    else:
+        lp_address = token_metadata['lp_address']
+        if not lp_address:
+            lp_current_supply = 1
+            lp_initial_supply = 2
+        else:
+            lp_data = await get_data_from_helius(lp_address)
+            lp_decimals = lp_data['token_info']['decimals']
+            lp_current_supply = round(((lp_data['token_info']['supply']) / (10 ** lp_decimals)), 2)
+            lp_initial_supply = token_metadata['initial_lp_supply']
+    # ------                      ----- #
 
-async def get_lp_burnt(token_mint: str, pool=None):
-    lp_address = await get_metadata(token_mint, pool=pool)
-    lp_address = lp_address['lp_address']
-
-    data = await get_data_from_helius(lp_address)
-    decimals = data['token_info']['decimals']
-
-    return round(((data['token_info']['supply']) / (10 ** decimals)), 2)
-
-
-async def get_just_supply(token_mint: str, pool=None):
-    data = await get_metadata(token_mint, pool=pool)
-    return data['supply']
-
-
-async def get_top_holder_percentages(token_mint: str):
-    """
-    Asynchronously fetches the 20 largest accounts for a specified SPL Token mint.
-
-    Args:
-    - mint_address (str): The base-58 encoded public key of the SPL Token Mint.
-    - cluster_url (str, optional): URL of the Solana cluster to query. Defaults to mainnet-beta.
-
-    Returns:
-    - list: A list of dictionaries containing the 20 largest accounts for the specified SPL Token.
-    """
-
-    supply = await get_just_supply(token_mint)
-
+    # ------ Get top holders data ----- #
     client = Client(rpc_url)
-
-    # Convert the mint address string to a Pubkey object
     mint_pubkey = Pubkey.from_string(token_mint)
+    holders_data = [d['uiAmount'] for d in ast.literal_eval(client.get_token_largest_accounts(mint_pubkey)
+                                                            .to_json())['result']['value']]
+    safe_round = lambda x: round(x, 2) if isinstance(x, float) else 100.0
+    # ------                ----- #
 
-    # Fetch the 20 largest accounts
-    try:
-        data = ast.literal_eval(client.get_token_largest_accounts(mint_pubkey).to_json())['result']['value']
-    except Exception as e:
-        await asyncio.sleep(3)
-        data = ast.literal_eval(client.get_token_largest_accounts(mint_pubkey).to_json())['result']['value']
-        print(e)
+    # ------ Data to return ----- #
+    is_mintable = bool(token_data.get('token_info').get('mint_authority'))
+    is_mutable = token_data.get('mutable')
+    lp_burnt_percentage = None if lp_current_supply == 1 and lp_initial_supply == 2 else int(
+        100 - (lp_current_supply / lp_initial_supply * 100))
+    top_10 = safe_round((sum(holders_data[1:10]) / token_supply * 100) if token_supply else 0)
+    top_20 = safe_round((sum(holders_data[1:21]) / token_supply * 100) if token_supply else 0)
 
-    data = [{k: v for k, v in d.items() if k == 'uiAmount'} for d in data]
-    data = [d['uiAmount'] for d in data]
-    try:
-        top_10 = round((sum(data[1:10]) / supply * 100), 2)
-        top_20 = round((sum(data[1:]) / supply * 100), 2)
-    except TypeError:
-        top_10 = 100.0
-        top_20 = 100.0
     return {
+        'is_mintable': is_mintable,
+        'is_mutable': is_mutable,
+        'lp_burnt_percentage': lp_burnt_percentage,
         'top_10': top_10,
         'top_20': top_20
     }
-
-
-async def get_mintable_mutable_supply(token_mint: str):
-    data = await get_data_from_helius(token_mint)
-
-    mintable = data.get('token_info')
-    mintable = mintable.get('mint_authority')
-    if mintable:
-        mintable = True
-    else:
-        mintable = False
-
-    return {
-        'is_mutable': data.get('mutable'),
-        'is_mintable': mintable
-    }
-
-
-async def get_security(token_mint):
-    return
 
 
 async def main():
@@ -104,7 +72,7 @@ async def main():
     # session = aiohttp.ClientSession()
 
     start = float(time.time())
-    await get_metadata('8GYGViQWHX7ZYunCUiyXKo5dp3KobcN2gqKoHDyqDYW', pool=pool)  # , session=session)
+    print(await get_security('GpQmR58NthSXCj68xjGp9qxz6uhRRzA8rekN7NNNLs3g', pool=pool))  # , session=session)
     end = float(time.time())
     # await session.close()
 

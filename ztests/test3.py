@@ -9,7 +9,7 @@ from metadataAndSecurityModule.metadataUtils import get_data_from_helius, retrie
 
 async def main():
     pool = await asyncpg.create_pool(dsn=pg_db_url)
-    x = await get_metadata('GzyVDkS4FWo45LH4nz4hjRJpQ9iaCj1JCWxskADgXbae', pool=pool)
+    x = await get_data_from_helius('B55GCR6A7ymhdSXpeJ2BSHbjkkwmL7QMV5QdDCfgxvUN')
     pprint(x)
 
 asyncio.run(main())

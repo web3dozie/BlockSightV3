@@ -57,7 +57,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30,
     last_tx_sig = None
     zero_trigger = True
     last_tx_timestamp = int(time.time())  # Current timestamp
-    max_retries = 3  # Number of retries
+    max_retries = 1  # Number of retries
 
     while (last_tx_timestamp >= (int(time.time()) - secs_ago)) and zero_trigger and (count <= 35):
         url = base_url
@@ -91,8 +91,8 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30,
 
             except Exception as e:
                 retries += 1
-                print(f"Error: {e}, retrying in 1 seconds...")
-                await asyncio.sleep(1)
+                print(f"Error: {e}, retrying in 0.1 seconds...")
+                await asyncio.sleep(0.1)
 
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
@@ -351,10 +351,8 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
     name = result['content']['metadata']['name']
 
     # check two places and fall back on a default img_url
-    img_url = result['content']['links']['image'] \
-        if 'image' in result['content']['links'] and result['content']['links']['image'] else (
-        result['content']['files']['uri'] if 'uri' in result['content']['files']
-        else 'https://cdn-icons-png.flaticon.com/512/2748/2748558.png')
+    img_url = (result['content']['links'].get('image') or result['content']['files'].get('uri') or
+               'https://cdn-icons-png.flaticon.com/512/2748/2748558.png')
 
     # for socials check description for 3 or more links (if it isn't there pass to other function)
     try:
@@ -375,7 +373,7 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
 
     deployer = result['authorities'][0]['address']
 
-    max_retries = 2
+    max_retries = 1
     attempts = 0
     deploy_sig = None
     lp_creation_time = None
