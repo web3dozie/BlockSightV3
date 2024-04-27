@@ -27,5 +27,5 @@ async def listen_for_calls():
             if len(addressTimeData.keys()) > 0:
                 await insert_address_time_into_db(addressTimeData=addressTimeData, channelId=event.message.peer_id)
 
-        client.start()
-        client.run_until_disconnected()
+        await client.start()
+        await client.run_until_disconnected()
