@@ -12,10 +12,19 @@ pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight
 helius_api_key = '41a2ecf6-41ff-4ef8-997f-c9b905388725'
 
 
-def is_valid_wallet(string):
+def is_valid_wallet(wallet_address: str) -> bool:
+    """
+    Check if the given wallet address is valid by attempting to decode it and create a VerifyKey object.
+
+    Args:
+        wallet_address (str): The wallet address to validate.
+
+    Returns:
+        bool: True if the wallet address is valid, False otherwise.
+    """
     try:
         # Decode the string from to bytes
-        point_bytes = base58.b58decode(string)
+        point_bytes = base58.b58decode(wallet_address)
 
         # Attempt to create a VerifyKey object, which will validate the point
         VerifyKey(point_bytes)
@@ -26,9 +35,18 @@ def is_valid_wallet(string):
         return False
 
 
-def deduplicate_transactions(txs):
+def deduplicate_transactions(transactions: list) -> list:
+    """
+    Deduplicate transactions by sorting them and ensuring that each out_mint appears only once within a 15-minute window.
+
+    Args:
+        transactions (list): A list of transaction dictionaries to deduplicate.
+
+    Returns:
+        list: A deduplicated list of transaction dictionaries.
+    """
     # Sort transactions by 'out_mint' and then by 'timestamp'
-    sorted_txs = sorted(txs, key=lambda x: (x['out_mint'], x['timestamp']))
+    sorted_txs = sorted(transactions, key=lambda x: (x['out_mint'], x['timestamp']))
 
     # Function to deduplicate transactions
     deduped = []
@@ -49,31 +67,69 @@ def deduplicate_transactions(txs):
     return deduped
 
 
-def determine_grade(trades, win_rate, avg_size, pnl):
-    # Helper function to determine points based on value and thresholds
-    def get_points(value, thresholds):
-        if value >= thresholds['S']:
-            return 25
-        elif value >= thresholds['A']:
-            return 15
-        elif value >= thresholds['B']:
-            return 10
-        elif value >= thresholds['C']:
-            return 5
-        else:
-            return 0
+def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: float, window=30) -> dict:
+    """
+    Determine the grade of a wallet based on its trading performance metrics.
 
+    Args:
+        trades (int): The number of trades.
+        win_rate (float): The win rate percentage.
+        avg_size (float): The average size of trades.
+        pnl (float): The profit and loss.
+
+    Returns:
+        dict: A dictionary containing the overall grade and individual grades for each metric.
+    """
     # Define thresholds for each category
     win_rate_thresholds = {'S': 25, 'A': 20, 'B': 15, 'C': 10, 'F': 10}
-    trades_thresholds = {'S': 100, 'A': 75, 'B': 50, 'C': 20, 'F': 20}
     size_thresholds = {'S': 2000, 'A': 1000, 'B': 500, 'C': 200, 'F': 200}
-    pnl_thresholds = {'S': 25000, 'A': 10000, 'B': 2500, 'C': 1000, 'F': 1000}
 
-    # Calculate points for each category
-    win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
-    trades_points = get_points(trades, trades_thresholds)
-    size_points = get_points(avg_size, size_thresholds)
-    pnl_points = get_points(pnl, pnl_thresholds)
+    if window == 30:
+        trades_thresholds = {'S': 100, 'A': 75, 'B': 50, 'C': 20, 'F': 20}
+        pnl_thresholds = {'S': 25000, 'A': 10000, 'B': 2500, 'C': 1000, 'F': 1000}
+    elif window == 7:
+        trades_thresholds = {'S': 100 / 4, 'A': 75 / 4, 'B': 50 / 4, 'C': 20 / 4, 'F': 20 / 4}
+        pnl_thresholds = {'S': 25000 / 4, 'A': 10000 / 4, 'B': 2500 / 4, 'C': 1000 / 4, 'F': 1000 / 4}
+    else:
+        trades_thresholds = {'S': 100 / 30, 'A': 75 / 30, 'B': 50 / 30, 'C': 20 / 30, 'F': 20 / 30}
+        pnl_thresholds = {'S': 30000 / 30, 'A': 15000 / 30, 'B': 5000 / 30, 'C': 2500 / 30, 'F': 1000 / 30}
+
+    # Helper function to determine points based on value and thresholds
+    def get_points(value, thresholds):
+        print('I STARTED')
+        try:
+            if value >= thresholds['S']:
+                print('S')
+                return 25
+            elif value >= thresholds['A']:
+                print('A')
+                return 15
+            elif value >= thresholds['B']:
+                print('B')
+                return 10
+            elif value >= thresholds['C']:
+                print('C')
+                return 5
+            else:
+                print('F')
+                return 1
+        except Exception as e:
+            print(e)
+            raise e
+
+    print(f'win_rate: {type(win_rate)}\nwin_rate_thresholds: {win_rate_thresholds}')
+
+    # -------------------------------------------------- #
+    def help_me():
+        # Calculate points for each category
+        win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
+        trades_points = get_points(trades, trades_thresholds)
+        size_points = get_points(avg_size, size_thresholds)
+        pnl_points = get_points(pnl, pnl_thresholds)
+
+        return win_rate_points, trades_points, size_points, pnl_points
+
+    win_rate_points, trades_points, size_points, pnl_points = help_me()
 
     # Calculate overall points
     overall_points = win_rate_points + trades_points + size_points + pnl_points
@@ -129,15 +185,312 @@ def determine_grade(trades, win_rate, avg_size, pnl):
 
     # Return results
     return {
-        "overall": overall_tier,
-        "win_rate": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
-        "trades": get_tier(trades_points),
-        "size": get_tier(size_points),
-        "pnl": get_tier(pnl_points)
+        "overall_grade": overall_tier,
+        "win_rate_grade": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
+        "trades_grade": get_tier(trades_points),
+        "size_grade": get_tier(size_points),
+        "pnl_grade": get_tier(pnl_points)
     }
 
 
-async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'):
+def determine_tg_grade(trades: int, win_rate: float, window=30) -> dict:
+    """
+    Determine the grade of a tg channel based on its performance metrics.
+
+    Args:
+        trades (int): The number of trades.
+        win_rate (float): The win rate percentage.
+
+    Returns:
+        dict: A dictionary containing the overall grade and individual grades for each metric.
+    """
+
+    # Define thresholds for each category
+    win_rate_thresholds = {'S': 45, 'A': 30, 'B': 20, 'C': 15, 'F': 10}
+    trades_thresholds = {'S': 30, 'A': 25, 'B': 20, 'C': 15, 'F': 10}
+
+    profit_per_bet = 2.5
+    win_prob = win_rate / 100
+    pnl = profit_per_bet * trades * win_prob - 1 * trades
+
+    if window == 30:
+        trades_thresholds = {'S': 30, 'A': 25, 'B': 20, 'C': 15, 'F': 10}
+        pnl_thresholds = {'S': 15, 'A': 10, 'B': 5, 'C': 0, 'F': 0}
+    elif window == 7:
+        trades_thresholds = {'S': 30 / 4, 'A': 25 / 4, 'B': 20 / 4, 'C': 15 / 4, 'F': 10 / 4}
+        pnl_thresholds = {'S': 15 / 4, 'A': 10 / 4, 'B': 5 / 4, 'C': 0 / 4, 'F': 0 / 4}
+    else:
+        trades_thresholds = {'S': 30 / 30, 'A': 25 / 30, 'B': 20 / 30, 'C': 15 / 30, 'F': 10 / 30}
+        pnl_thresholds = {'S': 15 / 30, 'A': 10 / 30, 'B': 5 / 30, 'C': -1 / 30, 'F': -5 / 30}
+
+    # Helper function to determine points based on value and thresholds
+    def get_points(value, thresholds):
+        try:
+            if value >= thresholds['S']:
+                print('S')
+                return 25
+            elif value >= thresholds['A']:
+                print('A')
+                return 15
+            elif value >= thresholds['B']:
+                print('B')
+                return 10
+            elif value >= thresholds['C']:
+                print('C')
+                return 5
+            else:
+                print('F')
+                return 1
+        except Exception as e:
+            print(e)
+            raise e
+
+    # -------------------------------------------------- #
+    def help_me():
+        # Calculate points for each category
+        win_rate_points = get_points(win_rate, win_rate_thresholds) * 2  # Double points for win rate
+        trades_points = get_points(trades, trades_thresholds)
+        pnl_points = get_points(pnl, pnl_thresholds)
+
+        return win_rate_points, trades_points, pnl_points
+
+    win_rate_points, trades_points, pnl_points = help_me()
+
+    # Calculate overall points
+    overall_points = win_rate_points + trades_points + pnl_points
+
+    # Adjust overall points for Tier F
+    if win_rate < win_rate_thresholds['F']:
+        overall_points -= 10
+
+    if trades < trades_thresholds['F']:
+        overall_points -= 5
+
+    if trades < 10:
+        overall_points -= 10
+
+    if pnl < pnl_thresholds['F']:
+        overall_points -= 10
+
+    # Determine overall tier
+    if overall_points >= 100:
+        overall_tier = 'SS'
+    elif overall_points >= 90:
+        overall_tier = 'S'
+    elif overall_points >= 80:
+        overall_tier = 'A+'
+    elif overall_points >= 70:
+        overall_tier = 'A'
+    elif overall_points >= 60:
+        overall_tier = 'B+'
+    elif overall_points >= 50:
+        overall_tier = 'B'
+    elif overall_points >= 45:
+        overall_tier = 'C+'
+    elif overall_points >= 40:
+        overall_tier = 'C'
+    else:
+        overall_tier = 'F'
+
+    # Determine tier for each category (reusing get_points function for simplicity)
+    def get_tier(points):
+        if points == 25:
+            return 'S'
+        elif points == 15:
+            return 'A'
+        elif points == 10:
+            return 'B'
+        elif points == 5:
+            return 'C'
+        else:
+            return 'F'
+
+    # Return results
+    return {
+        "overall_grade": overall_tier,
+        "win_rate_grade": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
+        "trades_grade": get_tier(trades_points),
+        "pnl_grade": get_tier(pnl_points),
+        "pnl": pnl
+    }
+
+
+def generate_trader_message(data):
+    grade = data['overall_grade']
+    pnl = data['pnl_grade']
+    frequency = data['trades_grade']
+    win_rate = data['win_rate_grade']
+    avg_size = data['size_grade']
+
+    # Define your message categories
+    if grade in ['SS', 'S'] and avg_size in ['S', 'A'] and frequency in ['S', 'A']:
+        return ("The Solana market's VIP! A trading juggernaut, splashing around big bets like a "
+                "celebrity at a Vegas pool party. Who the fuck are you and why are you so good at everything?")
+
+    elif grade in ['SS', 'S'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return ("The silent assassin! With a portfolio stealthier than a cat burglar, "
+                "you’re raking in consistent wins. Small, sneaky, and successful.")
+
+    elif grade in ['S', 'A'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return ("The sniper, picking off wins with surgical precision. You might not be making it rain,"
+                " but your steady hand is writing a success story one trade at a time.")
+
+    elif grade in ['A'] and frequency in ['S', 'A'] and avg_size in ['S', 'A']:
+        return ("The celebrity trader! Flashy, frequent, and fabulously wealthy. "
+                "You’re not just in the market, you ARE the market. Autographs, please?")
+
+    elif grade in ['A', 'B+'] and avg_size in ['S', 'A'] and pnl in ['C', 'F']:
+        return ("The bold gambler, throwing around SOL like it’s confetti at a New Year’s party."
+                " Sure, it’s a bit of a coin flip, but who doesn't love a bit of drama?")
+
+    elif grade in ['B', 'C'] and avg_size in ['C', 'F'] and win_rate in ['S', 'A']:
+        return ("The scrappy underdog! Not the flashiest wallet in the room, "
+                "but you’ve got a golden touch. Like a ninja in a bank vault, making each move count.")
+
+    elif grade in ['C', 'F'] and avg_size in ['B', 'C'] and pnl in ['C', 'F']:
+        return "You're trash, Get a life off your screen"
+
+    elif grade in ['B', 'C'] and frequency in ['S', 'A'] and avg_size in ['B', 'C']:
+        return ("Busy as a bee, buzzing from one trade to the next. Not the biggest player on the field,"
+                " but definitely one of the most energetic. Go, Speed Racer, go!")
+
+    elif grade in ['F'] and frequency in ['C', 'F'] and avg_size in ['C', 'F']:
+        return "Shit Shit Shit -- Your wallet is a waste of good SOL. Fuck Off."
+
+    elif grade in ['C'] and frequency in ['C', 'F'] and pnl in ['C', 'F']:
+        return "While you aren't total trash, Stop trading. You're NGMI."
+
+    elif grade in ['A', 'B+'] and frequency in ['B', 'C'] and avg_size in ['B', 'C']:
+        return "You're okay, I guess."
+
+    elif grade in ['A', 'B'] and avg_size in ['S', 'A'] and pnl in ['S', 'A']:
+        return ("The steady giant, moving through the market like a wise old elephant. "
+                "Big, sure, but with a grace that keeps the wins coming. Slow and steady wins the race!")
+
+    elif grade in ['S', 'A'] and frequency in ['B', 'C'] and avg_size in ['B', 'C']:
+        return ("You're the Solana market's all-rounder. Not too hot, not too cold – just right. "
+                "Like the Goldilocks of trading, but with a sharper suit.")
+
+    elif grade in ['C', 'F'] and pnl in ['F'] and frequency in ['S', 'A']:
+        return "You are a professional -- AT LOSING MONEY HA!"
+
+    elif grade in ['C', 'F'] and avg_size in ['S', 'A'] and frequency in ['C', 'F']:
+        return "Traders like you pay my bills"
+
+    elif grade in ['SS', 'S'] and frequency in ['S', 'A'] and pnl in ['C', 'F']:
+        return ("The speed demon with a penchant for danger! Racing through trades like a "
+                "Formula 1 driver. Fast, furious, and living on the edge!")
+
+    elif grade in ['S'] and avg_size in ['S'] and pnl in ['S'] and win_rate in ['S'] and frequency in ['B', 'C', 'F']:
+        return "What a degen, talk about conviction trades."
+
+    elif grade in ['SS', 'S', 'A'] and pnl in ['S', 'A'] and avg_size in ['C', 'F']:
+        return ("The silent winner, sneaking in wins like a ninja in the night. "
+                "Small in size, but colossal in impact. Who says you need to shout to be heard?")
+
+    elif grade in ['S', 'A'] and avg_size in ['A', 'B', 'C'] and pnl in ['A', 'S'] and win_rate in ['S']:
+        return "Who are you and why is your wallet so sexy?"
+
+    elif grade in ['A', 'B+'] and frequency in ['C', 'F'] and avg_size in ['B', 'C']:
+        return ("The casual trader, strolling through the Solana market like it’s a "
+                "Sunday walk in the park. Not too rushed, enjoying the scenery, making moves at a leisurely pace.")
+
+    elif grade in ['B+', 'A'] and avg_size in ['A', 'B'] and pnl in ['A', 'B'] and win_rate in ['B', 'C']:
+        return "You're quite profitable, but you should buy dumb shit less often."
+
+    elif (grade in ['B+', 'B', 'C'] and avg_size in ['B', 'C'] and pnl in ['F'] and win_rate in ['S'] and
+          frequency in ['S']):
+        return "You're good at a few things, but you aren't making money. Get good or get out."
+
+    elif grade in ['C', 'F'] and avg_size in ['C', 'F'] and pnl in ['S', 'A']:
+        return "Schrodinger's Degen - You're shit but you make money? Teach me ser."
+
+    else:
+        # Default message for unclassified scenarios
+        return random.choice(["Hmm", "What do we have here?", "Weird..", "The voices, make them stoppp",
+                              "I just bought a used car"])
+
+
+def generate_tg_message(data):
+    grade = data['overall_grade']
+    pnl = data['pnl_grade']
+    frequency = data['trades_grade']
+    win_rate = data['win_rate_grade']
+
+    if grade == 'SS':
+        return random.choice([
+            'This caller is a gift to Solana.',
+            'Who are you and why are you so perfect?',
+            'A bona fide money printer, ape everything they call.'
+        ])
+
+    elif grade == 'S':
+        if frequency != 'S':
+            if frequency in ['F', 'C']:
+                return 'You\'re a winner, but you really love to play it safe, huh?'
+            return random.choice([
+                'You\'re amazing, I just wish you made a few more calls.',
+                'Every degen should worship you. Just make a few more calls.'
+            ])
+        return 'Top tier performance! Keep up the great calls!'
+
+    elif grade == 'A':
+        if frequency in ['C', 'F']:
+            return random.choice([
+                'You\'re doing okay, but you need to make more calls.',
+                'Nice calls! Making more good calls should give you a boost.'
+            ])
+        elif frequency in ['A', 'B']:
+            return random.choice([
+                'Solid performance with consistent results!',
+                'You\'re managing well, just a bit more activity could skyrocket your results!'
+            ])
+        return 'Great job! You’re on your way to the top tiers.'
+
+    elif grade == 'B':
+        if frequency in ['C', 'F']:
+            return random.choice([
+                'Decent effort! Increasing your trade frequency might help.',
+                'You’ve got potential; just need to take more action!'
+            ])
+        elif frequency in ['A', 'B']:
+            return random.choice([
+                'Good foundation! A little tweak here and there could make a big difference.',
+                'You\'re on the right track, now push a little harder to improve your calls.'
+            ])
+        return 'Not bad at all, but there’s room for improvement.'
+
+    elif grade == 'C':
+        if frequency in ['S', 'A']:
+            return random.choice([
+                'You’re quite active, which is great! Now let’s focus on making each call count.',
+                'Activity isn’t your issue; it’s time to improve the quality of those calls.'
+            ])
+        elif frequency in ['C', 'F']:
+            return random.choice([
+                'Needs improvement, but keep pushing! Focus on both the quality and quantity of calls.',
+                'More activity could help, but also revisit your strategies.'
+            ])
+        return 'Keep pushing! Consistency and quality need some work.'
+
+    elif grade == 'F':
+        return random.choice([
+            'This caller is really really bad. Don\'t waste time or money with this channel.',
+            'What a waste of time lmao. I\'m a bot and I almost puked after looking at his channel.',
+            'Nope, just nope.'
+        ])
+
+
+async def get_sol_price(token_mint: str = 'So11111111111111111111111111111111111111112') -> float:
+    """
+    Fetch the current price of SOL from the Dexscreener API.
+
+    Args:
+        token_mint (str, optional): The mint address of the SOL token. Defaults to the official SOL mint address.
+
+    Returns:
+        float: The current price of SOL in USD.
+    """
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
     max_retries = 3  # Number of retries
     retries = 0
@@ -166,10 +519,19 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
 
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
-        return 200
+        return 180
 
 
-async def get_weth_price(token_mint='7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'):
+async def get_weth_price(token_mint: str = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs') -> float:
+    """
+    Fetch the current price of WETH from the Dexscreener API.
+
+    Args:
+        token_mint (str, optional): The mint address of the WETH token. Defaults to the official WETH mint address.
+
+    Returns:
+        float: The current price of WETH in USD.
+    """
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
     max_retries = 3  # Number of retries
     retries = 0
@@ -198,11 +560,21 @@ async def get_weth_price(token_mint='7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963vox
 
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
-        return 2300
+        return 3500
 
 
 # DONE -> Fix insertions
-async def insert_wallet_into_db(data, db_url=pg_db_url):
+async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
+    """
+    Insert or update wallet data into the database.
+
+    Args:
+        data (dict): A dictionary containing wallet data with keys corresponding to database columns.
+        db_url (str): Database connection URL.
+
+    Returns:
+        None
+    """
     # Connect to the PostgreSQL database asynchronously
     conn = await asyncpg.connect(dsn=db_url)
     try:
@@ -227,33 +599,76 @@ async def insert_wallet_into_db(data, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def is_wallet_outdated(wallet_address, db_url=pg_db_url):
+async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, window: int = 30, pool=None) -> bool:
+    """
+    Check if the wallet data in the database is outdated (older than 1 day).
+
+    Args:
+        pool: pg pool
+        window:
+        wallet_address (str): The wallet address to check.
+        db_url (str): Database connection URL.
+
+    Returns:
+        bool: True if the wallet data is outdated, False otherwise.
+    """
     # Calculate the threshold timestamp for 1 day ago
     one_day_ago = int(time.time()) - (24 * 60 * 60)
+    window = f"{window}d"
 
-    # Connect to the PostgreSQL database asynchronously
-    conn = await asyncpg.connect(dsn=db_url)
-    try:
-        # Prepare the SELECT statement to find the last_checked value for the given wallet
-        query = """
-        SELECT last_checked FROM wallets WHERE wallet = $1
-        """
-        # Execute the query
-        result = await conn.fetchval(query, wallet_address)
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                # Prepare the SELECT statement to find the last_checked value for the given wallet
+                query = """
+                SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
+                """
+                # Execute the query
+                result = await conn.fetchval(query, wallet_address, window)
 
-        # Check if the wallet was found and if its last_checked is older than one day ago
-        if not result:
-            return True
-        elif result < one_day_ago:
-            return True
-        else:
-            return False
-    finally:
-        await conn.close()  # Ensure the connection is closed
+                # Check if the wallet was found and if its last_checked is older than one day ago
+                if not result:
+                    return True
+                elif result < one_day_ago:
+                    return True
+                else:
+                    return False
+            finally:
+                await conn.close()  # Ensure the connection is closed
+    else:
+        # Connect to the PostgreSQL database asynchronously
+        conn = await asyncpg.connect(dsn=db_url)
+        try:
+            # Prepare the SELECT statement to find the last_checked value for the given wallet
+            query = """
+            SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
+            """
+            # Execute the query
+            result = await conn.fetchval(query, wallet_address, window)
+
+            # Check if the wallet was found and if its last_checked is older than one day ago
+            if not result:
+                return True
+            elif result < one_day_ago:
+                return True
+            else:
+                return False
+        finally:
+            await conn.close()  # Ensure the connection is closed
 
 
 # DONE -> Fix data retrieval
-async def get_wallet_data(wallet_address, db_url=pg_db_url):
+async def get_wallet_data(wallet_address: str, db_url: str = pg_db_url) -> dict:
+    """
+    Retrieve wallet data from the database.
+
+    Args:
+        wallet_address (str): The wallet address for which to retrieve data.
+        db_url (str): Database connection URL.
+
+    Returns:
+        dict: A dictionary containing the wallet data, or an empty dictionary if not found.
+    """
     # Connect to the PostgreSQL database asynchronously
     conn = await asyncpg.connect(dsn=db_url)
     try:
@@ -278,13 +693,25 @@ async def get_wallet_data(wallet_address, db_url=pg_db_url):
         await conn.close()  # Ensure the connection is closed
 
 
-async def process_wallet(wallet_address, window=30, end_time:int=None, db_url=pg_db_url):
-    if await is_wallet_outdated(wallet_address, db_url=db_url):
+async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> dict:
+    """
+    Process a wallet by fetching transactions, calculating PnL, and updating the database.
+
+    Args:
+        pool:
+        wallet_address (str): The wallet address to process.
+        window (int): The number of days to consider for transaction history.
+
+    Returns:
+        dict: A dictionary containing the processed wallet summary.
+    """
+    if await is_wallet_outdated(wallet_address, window=window, pool=pool):
         # Get last 30 days of SPL Buy TXs
         print('FETCHING TXS')
-        thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, end_time=end_time, db_url=db_url)
-        if len(thirty_day_swaps) == 0:
-            raise Exception("Unable to fetch txs")
+        try:
+            thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, pool=pool)
+        except Exception as e:
+            raise e
         print('FETCHED TXS')
         sol_price = await get_sol_price()
 
@@ -370,7 +797,7 @@ async def process_wallet(wallet_address, window=30, end_time:int=None, db_url=pg
         pprint(wallet_summary)
         print('\n\n')
 
-        await insert_wallet_into_db(wallet_summary, db_url=db_url)
+        await insert_wallet_into_db(wallet_summary)
         return wallet_summary
 
     else:
@@ -493,11 +920,12 @@ async def parse_tx_get_swaps(tx: dict):
 
 # DONE
 # "window should be 1, 7, or 30. represents no. of days to fetch txs for"
-# the end_time parameter specifies the end of the window 
-async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_time:int=None, db_url=pg_db_url, window=30):
-    conn = await asyncpg.connect(dsn=db_url)
-    if end_time is None:
-        end_time = int(time.time())
+
+async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=30, pool=None):
+    if pool:
+        conn = await pool.acquire()
+    else:
+        conn = await asyncpg.connect(dsn=db_url)
 
     # Fetching the latest transaction timestamp for the wallet
     query = "SELECT MAX(timestamp) FROM txs WHERE wallet = $1"
@@ -537,7 +965,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
         retries = 0
         while retries < max_retries:
             try:
-                await asyncio.sleep(random.randint(3,20)) # trying to avoid 429's
+                await asyncio.sleep(random.randint(3, 20))  # trying to avoid 429's
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as response:
                         if response.status == 200:
@@ -549,7 +977,8 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
 
                             for tx in tx_data_batch:
 
-                                if last_db_tx_timestamp and tx['timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
+                                if last_db_tx_timestamp and tx[
+                                                             'timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
                                     continue
                                 tx_data.append(tx)
 
@@ -564,13 +993,13 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
 
             except Exception as e:
                 retries += 1
-                print(f"Error: {e}, retrying in {retries * 5} seconds...")
+                print(f"Error: in get_wallet_txs: {e}, retrying in {retries * 5} seconds...")
                 await asyncio.sleep(retries * 5)
 
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
                 await conn.close()
-                return []
+                raise Exception("Failed to fetch data after retries.")
 
     # slow version of the comprehension
     # trfsList = [tx["tokenTransfers"] for tx in thirty_day_txs if (tx['feePayer'] !=
@@ -590,10 +1019,10 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
         swap_txs = await parse_for_swaps(tx_data)  # No I/O in here
 
         swap_txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
-                        tx['timestamp']) for tx in swap_txs]
+                            tx['timestamp']) for tx in swap_txs]
         swap_txs_tuples = set(swap_txs_tuples)
     try:
-    # Inserting new swap transactions into the database
+        # Inserting new swap transactions into the database
         if swap_txs_tuples:  # TODO I/O -> Check later for improvable parts.
             # await conn.executemany(
             #     "INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) "
@@ -608,14 +1037,16 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
 
         query = "SELECT * FROM txs WHERE wallet = $1 AND timestamp BETWEEN $2 AND $3"
 
-        rows = await conn.fetch(query, wallet, start_time, end_time)  # TODO -> Some I/O here check later for improvements
+        rows = await conn.fetch(query, wallet, start_time, end_time)
+
+        # TODO -> Some I/O here check later for improvements
         swap_txs_in_window = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
-    
+
     except Exception as e:
         print(f"Error {e} while running db insertion/retrieval operations for wallet {wallet}.")
         await conn.close()
-        return []
+        raise e
 
     await conn.close()
     return swap_txs_in_window
@@ -623,6 +1054,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
 
 async def parse_for_swaps(tx_data):
     txs = []
+
     async def wrapper(tx):
         str_val = str(tx)
         substrings = ('NonFungible', 'TENSOR', "'ProgrammableNFT'", 'FLiPggWYQyKVTULFWMQjAk26JfK5XRCajfyTmD5weaZ7')
@@ -640,5 +1072,6 @@ async def parse_for_swaps(tx_data):
     txs = [tx for tx in txs if tx]
     return txs
 
+
 if __name__ == '__main__':
-    asyncio.run(process_wallet('98HgTyeHTp18q32RHiZtjXKbumZoC8JThrG31YkXLQeV'))
+    print(asyncio.run(process_wallet('3AL3N6WgbyMX8XpAV7TSJrHdDxQNDX7R1j5neXVAQVxA', window=7)))

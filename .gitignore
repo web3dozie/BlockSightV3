@@ -5,9 +5,13 @@ venv
 **/**/*.pyc
 **/**/*.tsv
 **/**/*.joblib
+.aider*
+=======
 **/**/.idea
 **/**/node_modules
 **/**/.vscode
+**/**/profile.json
+**/**/*config.json
 
 # Logs
 logs
@@ -32,3 +36,4 @@ logs
 **/**/*.njsproj
 **/**/*.sln
 **/**/*.sw?
+

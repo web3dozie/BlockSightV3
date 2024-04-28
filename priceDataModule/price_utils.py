@@ -205,26 +205,34 @@ async def is_win_trade(token_mint, timestamp, pool=None, db_url=pg_db_url):
     # We could also load price data for each token we need beforehand and use whatever is in_memory instead
 
     three_point_five_days_in_seconds = 3.5 * 24 * 60 * 60
-    async with pool.acquire() as conn:
+    # Find the closest price at or after the given timestamp
+    query = """
+    WITH initial_price AS (
+        SELECT price, timestamp FROM token_prices
+        WHERE token_mint = $1 AND timestamp >= $2
+        ORDER BY timestamp ASC
+        LIMIT 1
+    )
+    SELECT EXISTS(
+        SELECT 1 FROM token_prices, initial_price
+        WHERE token_prices.token_mint = $1 
+        AND token_prices.timestamp BETWEEN initial_price.timestamp AND initial_price.timestamp + $3 
+        AND token_prices.price >= initial_price.price * 2.5
+    )
+    """
+    if pool:
+        async with pool.acquire() as conn:
+            try:
+                result = await conn.fetchval(query, token_mint, timestamp, three_point_five_days_in_seconds)
+                return bool(result)
+            except Exception as e:
+                print(f'Error occurred in is_win_trade: {e}')
+    else:
+        conn = await asyncpg.connect(db_url)
         try:
-            # Find the closest price at or after the given timestamp
-            query = """
-            WITH initial_price AS (
-                SELECT price, timestamp FROM token_prices
-                WHERE token_mint = $1 AND timestamp >= $2
-                ORDER BY timestamp ASC
-                LIMIT 1
-            )
-            SELECT EXISTS(
-                SELECT 1 FROM token_prices, initial_price
-                WHERE token_prices.token_mint = $1 
-                AND token_prices.timestamp BETWEEN initial_price.timestamp AND initial_price.timestamp + $3 
-                AND token_prices.price >= initial_price.price * 2.5
-            )
-            """
-
             result = await conn.fetchval(query, token_mint, timestamp, three_point_five_days_in_seconds)
-
             return bool(result)
         except Exception as e:
             print(f'Error occurred in is_win_trade: {e}')
+        finally:
+            await conn.close()
