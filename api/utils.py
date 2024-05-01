@@ -14,7 +14,7 @@ except:
 
 def token_required(f):
     @wraps(f)
-    def decorated(*args, **kwargs):
+    async def decorated(*args, **kwargs):
         token = None
 
         token = request.cookies.get('access-token')
@@ -27,6 +27,6 @@ def token_required(f):
         except:
             return jsonify({"msg": "Token is invalid"}), 401
 
-        return f(*args, **kwargs)
+        return await f(*args, **kwargs)
 
     return decorated

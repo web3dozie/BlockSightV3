@@ -1,44 +1,23 @@
-import asyncpg
-
-from dbs.db_operations import pg_db_url
 from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, \
     generate_trader_message, is_valid_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel
 from usersModule.user_utils import add_user_to_db
-from telegram import telegram_blueprint
-from web import web_blueprint
 import aiohttp, json
 
-from quart import Quart, request, jsonify, make_response
+from quart import request, jsonify, make_response, Blueprint, current_app
 
-app = Quart(__name__)
-app.register_blueprint(telegram_blueprint, url_prefix="/telegram")
-app.register_blueprint(web_blueprint, url_prefix='/web')
+core_blueprint = Blueprint('core', __name__)
 
-
-@app.before_serving
-async def create_pool():
-    app.pool = await asyncpg.create_pool(dsn=pg_db_url)
-
-
-@app.after_request
-def add_cors_headers(response):
-    # CHANGE THIS IN PRODUCTION!
-    response.headers['Access-Control-Allow-Origin'] = 'http://localhost:3000'
-    response.headers['Access-Control-Allow-Credentials'] = 'true'
-    return response
-
-
-@app.route("/core/analyse-wallet/<wallet_address>")
+@core_blueprint.route("/analyse-wallet/<wallet_address>")
 async def analyse_wallet(wallet_address):
     window = request.args.get("window", default=30, type=int)
     format = request.args.get("format", default=False, type=bool)
     if not is_valid_wallet(wallet_address):
         return "Invalid wallet", 400
     try:
-        wallet_data = await process_wallet(wallet_address, window, pool=app.pool)
+        wallet_data = await process_wallet(wallet_address, window, pool=current_app.pool)
         if not format:
             return wallet_data
 
@@ -49,10 +28,10 @@ async def analyse_wallet(wallet_address):
         trader_message = generate_trader_message(grades)
         return {"stats": wallet_data, "grades": grades, "msg": trader_message}
     except Exception as e:
-        return f"Internal Server Error: {str(e)}", 5000
+        current_app.logger.error(e, stack_info=True)
+        return f"Internal Server Error: {str(e)}", 500
 
-
-@app.route("/core/verify-token-mint/<token_mint>")
+@core_blueprint.route("/verify-token-mint/<token_mint>")
 async def verify_token_mint(token_mint):
     # might add some validation logic here
     if not token_mint:
@@ -66,8 +45,7 @@ async def verify_token_mint(token_mint):
     except Exception:
         return "Internal Server Error", 500
 
-
-@app.route("/core/is-win-trade")
+@core_blueprint.route("/is-win-trade")
 async def api_is_win_trade():
     token = request.args.get("token")
     timestamp = request.args.get("timestamp")
@@ -82,8 +60,7 @@ async def api_is_win_trade():
         print(f"Error while checking trade {e}")
         return "Internal Server Error", 500
 
-
-@app.route("/core/vet-tg-channel/<tg_channel>")
+@core_blueprint.route("/vet-tg-channel/<tg_channel>")
 async def vet_channel(tg_channel):
     print('API STARTED')
     window = request.args.get("window", default=30, type=int)
@@ -106,8 +83,7 @@ async def vet_channel(tg_channel):
         print(f"Error {e} while vetting channel {tg_channel}")
         return make_response(jsonify({"status": "Internal Server Error", "message": str(e)}), 500)
 
-
-@app.route("/core/discord-redirect")
+@core_blueprint.route("/discord-redirect")
 async def handle_discord_redirect():
     config = {}
 
@@ -178,7 +154,3 @@ async def handle_discord_redirect():
 
     return ("<p>You've signed up successfully! <a href='https://discord.gg/blocksight'>Join the discord server</a>"
             " and verify to use the Telegram bot</p>")
-
-
-if __name__ == '__main__':
-    app.run(debug=True)

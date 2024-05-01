@@ -1,12 +1,10 @@
 from quart import Blueprint, request, make_response, jsonify
+from utils import token_required
 from usersModule.user_utils import add_user_to_db
+from core import analyse_wallet
 import json, aiohttp, jwt
 
 web_blueprint = Blueprint('web', __name__)
-
-@web_blueprint.route("/demo")
-async def demo():
-    return "Hello world!"
 
 @web_blueprint.route("/discord-redirect")
 async def handle_web_discord_redirect():
@@ -87,3 +85,30 @@ async def handle_web_discord_redirect():
     # resp.set_cookie(key='access-token', value=encoded_jwt, httponly=True, samesite="None") # does what it should, but doesn't work for some reason and I'm tired
 
     return resp
+
+# @web_blueprint.route("/get-user-info/")
+# @token_required
+# async def web_get_user_info():
+#     config = {}
+
+#     try:
+#         with open('config.json', 'r') as file:
+#             config = json.load(file)
+#     except:
+#         print("config.json required")
+#         return "Server Error", 500
+#     token = request.cookies.get('access-token')
+#     # unnecessary
+#     # if not token:
+#     #     resp = await make_response(jsonify({"message": "Missing user token"}))
+#     #     resp.status ="401"
+#     #     return resp
+
+#     decoded_token = jwt.decode(token, key=config["blockSight_secret"], algorithms=["HS256"])
+#     user_id = decoded_token["user_id"] #continue
+
+
+@web_blueprint.route("/analyse-wallet/<wallet_address>")
+@token_required
+async def web_analyse_wallet(wallet_address):
+    return await analyse_wallet(wallet_address)
