@@ -8,13 +8,14 @@ from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel
 from usersModule.user_utils import add_user_to_db
 from telegram import telegram_blueprint
+from web import web_blueprint
 import aiohttp, json
 
-# from flask import Flask, request, jsonify, make_response
 from quart import Quart, request, jsonify, make_response
 
 app = Quart(__name__)
 app.register_blueprint(telegram_blueprint, url_prefix="/telegram")
+app.register_blueprint(web_blueprint, url_prefix='/web')
 
 
 @app.before_serving
@@ -24,7 +25,9 @@ async def create_pool():
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
+    # CHANGE THIS IN PRODUCTION!
+    response.headers['Access-Control-Allow-Origin'] = 'http://localhost:3000'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
     return response
 
 
