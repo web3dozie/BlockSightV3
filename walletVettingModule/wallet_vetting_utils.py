@@ -921,7 +921,9 @@ async def parse_tx_get_swaps(tx: dict):
 # DONE
 # "window should be 1, 7, or 30. represents no. of days to fetch txs for"
 
-async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', db_url=pg_db_url, window=30, pool=None):
+async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_time:int=None, db_url=pg_db_url, window=30, pool=None):
+    if not end_time:
+        end_time = int(time.time())
     if pool:
         conn = await pool.acquire()
     else:
