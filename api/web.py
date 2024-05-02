@@ -1,4 +1,6 @@
 from quart import Blueprint, request, make_response, jsonify
+
+from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
 from usersModule.user_utils import add_user_to_db
 from core import analyse_wallet
