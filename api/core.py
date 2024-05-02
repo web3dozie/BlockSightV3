@@ -1,4 +1,4 @@
-from dbs.db_operations import get_tx_list
+from dbs.db_operations import get_tx_list, fetch_wallet_leaderboard
 from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, \
     generate_trader_message, is_valid_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
@@ -170,3 +170,9 @@ async def handle_discord_redirect():
 
     return ("<p>You've signed up successfully! <a href='https://discord.gg/blocksight'>Join the discord server</a>"
             " and verify to use the Telegram bot</p>")
+
+
+# TODO Maybe put in web.py for auth gating, problem will be the pool object to use
+@core_blueprint.route("/get-wallets-leaderboard")
+async def wallets_leaderboard():
+    return await fetch_wallet_leaderboard(current_app.pool)
