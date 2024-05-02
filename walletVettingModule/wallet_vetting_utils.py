@@ -72,6 +72,7 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
     Determine the grade of a wallet based on its trading performance metrics.
 
     Args:
+        window
         trades (int): The number of trades.
         win_rate (float): The win rate percentage.
         avg_size (float): The average size of trades.
@@ -79,6 +80,7 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
 
     Returns:
         dict: A dictionary containing the overall grade and individual grades for each metric.
+
     """
     # Define thresholds for each category
     win_rate_thresholds = {'S': 25, 'A': 20, 'B': 15, 'C': 10, 'F': 10}
@@ -96,28 +98,20 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
 
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
-        print('I STARTED')
         try:
             if value >= thresholds['S']:
-                print('S')
                 return 25
             elif value >= thresholds['A']:
-                print('A')
                 return 15
             elif value >= thresholds['B']:
-                print('B')
                 return 10
             elif value >= thresholds['C']:
-                print('C')
                 return 5
             else:
-                print('F')
                 return 1
         except Exception as e:
             print(e)
             raise e
-
-    print(f'win_rate: {type(win_rate)}\nwin_rate_thresholds: {win_rate_thresholds}')
 
     # -------------------------------------------------- #
     def help_me():
@@ -198,6 +192,7 @@ def determine_tg_grade(trades: int, win_rate: float, window=30) -> dict:
     Determine the grade of a tg channel based on its performance metrics.
 
     Args:
+        window
         trades (int): The number of trades.
         win_rate (float): The win rate percentage.
 
@@ -1074,6 +1069,31 @@ async def parse_for_swaps(tx_data):
     txs = await asyncio.gather(*tasks)
     txs = [tx for tx in txs if tx]
     return txs
+
+
+async def fetch_wallet_leaderboard(pool, window='30d'):
+    conn = await pool.acquire()
+
+    query = ("SELECT * FROM wallets WHERE trades >= 5 AND window_value = $1 AND avg_size >= 10 "
+             "ORDER BY win_rate")
+    window_int = int(window[:-2])
+
+    rows = await conn.fetch(query, window)
+
+    graded_list = []
+    for record in rows:
+        wallet = dict(record)
+
+        wallet['win_rate'] = float(wallet['win_rate'])
+        wallet['avg_size'] = float(wallet['avg_size'])
+        wallet['pnl'] = float(wallet['pnl'])
+
+        # Calculate wallet grades and update the wallet dictionary directly
+        wallet.update(determine_wallet_grade(wallet['trades'], wallet['win_rate'],
+                                             wallet['avg_size'], wallet['pnl'], window=window_int))
+        graded_list.append(wallet)
+
+    return graded_list
 
 
 if __name__ == '__main__':

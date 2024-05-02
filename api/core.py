@@ -1,6 +1,6 @@
-from dbs.db_operations import get_tx_list, fetch_wallet_leaderboard
+from dbs.db_operations import get_tx_list
 from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, \
-    generate_trader_message, is_valid_wallet
+    generate_trader_message, is_valid_wallet, fetch_wallet_leaderboard
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel

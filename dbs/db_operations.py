@@ -2,6 +2,7 @@ from pprint import pprint
 
 import asyncpg, backoff
 
+
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
 
 
@@ -356,7 +357,6 @@ async def insert_snapshot_into_db(data, db_url=pg_db_url, pool=None):
 
 
 async def get_tx_list(wallet, pool=None, conn=None):
-
     if not conn:
         conn = await pool.acquire()
 
@@ -367,17 +367,4 @@ async def get_tx_list(wallet, pool=None, conn=None):
     tx_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
     return tx_list
-
-
-async def fetch_wallet_leaderboard(pool, window='30d'):
-    conn = await pool.acquire()
-
-    query = "SELECT * FROM wallets WHERE trades >= 5 AND window_value = $1 ORDER BY win_rate DESC LIMIT 100"
-
-    rows = await conn.fetch(query, window)
-
-    wallet_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
-
-    return wallet_list
-
 
