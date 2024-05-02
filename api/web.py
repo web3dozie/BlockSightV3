@@ -28,7 +28,7 @@ async def handle_web_discord_redirect():
         "client_secret": config["discord_secret"],
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': "http://localhost:3000/redirect" # TODO Need to change this
+        'redirect_uri': "http://localhost:3000/redirect"  # TODO Need to change this
     }
 
     data = aiohttp.FormData(data)
@@ -113,3 +113,9 @@ async def handle_web_discord_redirect():
 @token_required
 async def web_analyse_wallet(wallet_address):
     return await analyse_wallet(wallet_address)
+
+
+@web_blueprint.route("/get-wallets-leaderboard")
+@token_required
+async def web_wallets_leaderboard(wallet_address):
+    return await fetch_wallet_leaderboard()
