@@ -14,6 +14,7 @@ async def wallet_exists(wallet_address, db_url=pg_db_url, pool=None):
     """
     Check if a wallet_address exists in the wallets table asynchronously using PostgreSQL.
 
+    :param pool:
     :param db_url: URL to the PostgreSQL database
     :param wallet_address: The wallet address to check
     :return: True if the wallet_address exists, False otherwise
@@ -336,24 +337,35 @@ async def get_symbol_with_mint(mint, pool=None):
     return data['symbol']
 
 
-@backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def update_ath_after(max_time, path_to_db=pg_db_url):
+@backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
+async def update_ath_after(max_time, db_url=pg_db_url, pool=None):
     # TODO works with central DB
     # TODO Updates the ATH_AFTER COLUMNs based on the timestamps and price
     pass
 
 
-@backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=100)
-async def insert_snapshot_into_db(data, db_path=pg_db_url):
-    '''
+@backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
+async def insert_snapshot_into_db(data, db_url=pg_db_url, pool=None):
     """
-    # TODO
+    TODO
     very heavy concurrency needs
     add a snapshot to the db, based on the staging table, removes a mint from the staging table if it sees a flag
     """
 
-    return await predict_new_record(data, data)  # also uses the ML model to make a prediction and trigger responses
-    # if the trade is good
-    '''
-
     pass
+
+
+async def get_tx_list(wallet, pool=None, conn=None):
+
+    if not conn:
+        conn = await pool.acquire()
+
+    query = "SELECT * FROM txs WHERE wallet = $1 ORDER BY timestamp DESC LIMIT 50"
+
+    rows = await conn.fetch(query, wallet)
+
+    tx_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
+
+    return tx_list
+
+

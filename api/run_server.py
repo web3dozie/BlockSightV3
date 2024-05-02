@@ -20,7 +20,7 @@ async def create_pool():
 
 @app.after_request
 def add_cors_headers(response):
-    # CHANGE THIS IN PRODUCTION!
+    # TODO CHANGE THIS IN PRODUCTION!
     response.headers['Access-Control-Allow-Origin'] = 'http://localhost:3000'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
     return response

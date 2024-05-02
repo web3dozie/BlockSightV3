@@ -1,3 +1,4 @@
+from dbs.db_operations import get_tx_list
 from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, \
     generate_trader_message, is_valid_wallet
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
@@ -10,14 +11,24 @@ from quart import request, jsonify, make_response, Blueprint, current_app
 
 core_blueprint = Blueprint('core', __name__)
 
+
 @core_blueprint.route("/analyse-wallet/<wallet_address>")
 async def analyse_wallet(wallet_address):
     window = request.args.get("window", default=30, type=int)
     format = request.args.get("format", default=False, type=bool)
+    include_txs = request.args.get("include_txs", default=False, type=bool)
+
     if not is_valid_wallet(wallet_address):
         return "Invalid wallet", 400
+
     try:
         wallet_data = await process_wallet(wallet_address, window, pool=current_app.pool)
+
+        # Optionally fetch the transaction list
+        if include_txs:
+            tx_list = await get_tx_list(wallet_address, pool=current_app.pool)
+            wallet_data['tx_list'] = tx_list
+
         if not format:
             return wallet_data
 
@@ -26,10 +37,12 @@ async def analyse_wallet(wallet_address):
                                         window=window)
 
         trader_message = generate_trader_message(grades)
-        return {"stats": wallet_data, "grades": grades, "msg": trader_message}
+        return {"stats": wallet_data, "grades": grades, "msg": trader_message,
+                "tx_list": wallet_data.get('tx_list', [])}
     except Exception as e:
         current_app.logger.error(e, stack_info=True)
         return f"Internal Server Error: {str(e)}", 500
+
 
 @core_blueprint.route("/verify-token-mint/<token_mint>")
 async def verify_token_mint(token_mint):
@@ -45,6 +58,7 @@ async def verify_token_mint(token_mint):
     except Exception:
         return "Internal Server Error", 500
 
+
 @core_blueprint.route("/is-win-trade")
 async def api_is_win_trade():
     token = request.args.get("token")
@@ -59,6 +73,7 @@ async def api_is_win_trade():
     except Exception as e:
         print(f"Error while checking trade {e}")
         return "Internal Server Error", 500
+
 
 @core_blueprint.route("/vet-tg-channel/<tg_channel>")
 async def vet_channel(tg_channel):
@@ -82,6 +97,7 @@ async def vet_channel(tg_channel):
         print('VET FAILED')
         print(f"Error {e} while vetting channel {tg_channel}")
         return make_response(jsonify({"status": "Internal Server Error", "message": str(e)}), 500)
+
 
 @core_blueprint.route("/discord-redirect")
 async def handle_discord_redirect():

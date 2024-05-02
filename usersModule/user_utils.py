@@ -70,7 +70,7 @@ async def assign_role(client, user: discord.User, role_id: int):
     Assigns a role to a user in a specified guild.
 
     Parameters:
-    - client: The discord.py client or bot instance.
+    - client: The discord_blueprints.py client or bot instance.
     - user: discord.User object representing the user to whom the role will be assigned.
     - role_id: The ID of the role to assign to the user.
     """

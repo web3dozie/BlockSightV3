@@ -921,7 +921,8 @@ async def parse_tx_get_swaps(tx: dict):
 # DONE
 # "window should be 1, 7, or 30. represents no. of days to fetch txs for"
 
-async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_time:int=None, db_url=pg_db_url, window=30, pool=None):
+async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_time: int = None, db_url=pg_db_url,
+                         window=30, pool=None):
     if not end_time:
         end_time = int(time.time())
     if pool:
@@ -980,7 +981,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
                             for tx in tx_data_batch:
 
                                 if last_db_tx_timestamp and tx[
-                                                             'timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
+                                    'timestamp'] <= last_db_tx_timestamp and tx not in tx_data:
                                     continue
                                 tx_data.append(tx)
 

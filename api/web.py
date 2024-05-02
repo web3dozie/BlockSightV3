@@ -6,6 +6,7 @@ import json, aiohttp, jwt
 
 web_blueprint = Blueprint('web', __name__)
 
+
 @web_blueprint.route("/discord-redirect")
 async def handle_web_discord_redirect():
     config = {}
@@ -27,7 +28,7 @@ async def handle_web_discord_redirect():
         "client_secret": config["discord_secret"],
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': "http://localhost:3000/redirect" #Need to change this
+        'redirect_uri': "http://localhost:3000/redirect" # TODO Need to change this
     }
 
     data = aiohttp.FormData(data)
