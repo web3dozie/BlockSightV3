@@ -1,9 +1,9 @@
-from quart import Blueprint, request, make_response, jsonify
+from quart import Blueprint, request, make_response, jsonify, current_app
 
-from dbs.db_operations import fetch_wallet_leaderboard
+# from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
-from usersModule.user_utils import add_user_to_db
-from core import analyse_wallet
+from usersModule.user_utils import add_user_to_db, get_user_data
+from core import analyse_wallet, fetch_wallet_leaderboard
 import json, aiohttp, jwt
 
 web_blueprint = Blueprint('web', __name__)
@@ -72,7 +72,7 @@ async def handle_web_discord_redirect():
     token = request.cookies.get('access-token')
     if token:
         decoded_token = jwt.decode(token, key=config["blockSight_secret"], algorithms=["HS256"])
-        if decoded_token["user_id"] == user_info["username"]:
+        if decoded_token["user_name"] == user_info["username"]:
             return {"message": "Success"}
 
     try:
@@ -81,7 +81,7 @@ async def handle_web_discord_redirect():
         print(f"Exception {e} while adding user info to db")
         return "Internal Server Error", 500
     
-    payload = {"user_id": user_info["username"]}
+    payload = {"user_name": user_info["username"]}
     encoded_jwt = jwt.encode(payload, config["blockSight_secret"], algorithm="HS256")
     data = {"message":"Success", "access-token":encoded_jwt}
     resp = await make_response(jsonify(data))
@@ -89,29 +89,38 @@ async def handle_web_discord_redirect():
 
     return resp
 
-# @web_blueprint.route("/get-user-info/")
-# @token_required
-# async def web_get_user_info():
-#     config = {}
+@web_blueprint.route("/get-user-info/")
+@token_required
+async def web_get_user_info():
+    config = {}
 
-#     try:
-#         with open('config.json', 'r') as file:
-#             config = json.load(file)
-#     except:
-#         print("config.json required")
-#         return "Server Error", 500
-#     token = request.cookies.get('access-token')
-#     # unnecessary
-#     # if not token:
-#     #     resp = await make_response(jsonify({"message": "Missing user token"}))
-#     #     resp.status ="401"
-#     #     return resp
-
-#     decoded_token = jwt.decode(token, key=config["blockSight_secret"], algorithms=["HS256"])
-#     user_id = decoded_token["user_id"] #continue
-
+    try:
+        with open('config.json', 'r') as file:
+            config = json.load(file)
+    except:
+        print("config.json required")
+        return "Server Error", 500
+    token = request.cookies.get('access-token')
+  
+    try:
+        decoded_token = jwt.decode(token, key=config["blockSight_secret"], algorithms=["HS256"])
+    except:
+        return "Unauthorized", 401
+    
+    user_name = decoded_token["user_name"] #continue
+    try:
+        user_data = await get_user_data(username=user_name)
+        return user_data
+    except Exception as e:
+        current_app.logger.error(e)
+        return "internal Server Error", 500        
 
 @web_blueprint.route("/analyse-wallet/<wallet_address>")
 @token_required
 async def web_analyse_wallet(wallet_address):
     return await analyse_wallet(wallet_address)
+
+@web_blueprint.route("/get-wallets-leaderboard")
+@token_required
+async def web_wallets_leaderboard():
+    return await fetch_wallet_leaderboard(current_app.pool)

@@ -173,6 +173,7 @@ async def handle_discord_redirect():
 
 
 # TODO Maybe put in web.py for auth gating, problem will be the pool object to use
+# we can use the same pool object man. I'll put it in web.
 @core_blueprint.route("/get-wallets-leaderboard")
 async def wallets_leaderboard():
     return await fetch_wallet_leaderboard(current_app.pool)
