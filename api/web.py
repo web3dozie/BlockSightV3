@@ -11,8 +11,6 @@ web_blueprint = Blueprint('web', __name__)
 
 @web_blueprint.route("/discord-redirect")
 async def handle_web_discord_redirect():
-    config = {}
-
     try:
         with open('config.json', 'r') as file:
             config = json.load(file)
@@ -115,10 +113,12 @@ async def web_get_user_info():
         current_app.logger.error(e)
         return "internal Server Error", 500        
 
+
 @web_blueprint.route("/analyse-wallet/<wallet_address>")
 @token_required
 async def web_analyse_wallet(wallet_address):
     return await analyse_wallet(wallet_address)
+
 
 @web_blueprint.route("/get-wallets-leaderboard")
 @token_required
