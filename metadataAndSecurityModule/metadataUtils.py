@@ -300,41 +300,45 @@ async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
                 raise e
 
 
-async def get_data_from_helius(token_mint, api_key=helius_api_key):
+async def get_data_from_helius(token_mint, api_key=helius_api_key, session=None):
     url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
-    headers = {
-        'Content-Type': 'application/json',
-    }
+    headers = {'Content-Type': 'application/json'}
     payload = {
         "jsonrpc": "2.0",
         "id": "web3dozie",
         "method": "getAsset",
         "params": {
             "id": token_mint,
-            "displayOptions": {
-                "showFungible": True
-            }
+            "displayOptions": {"showFungible": True}
         },
     }
+    max_attempts = 5
 
-    max_attempts = 5  # Set the maximum number of retry attempts
+    is_new_session = False
+    if not session:
+        session = aiohttp.ClientSession()
+        is_new_session = True
+
     for attempt in range(max_attempts):
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=payload) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        result = result.get('result')
-
-                    else:
-                        print(f"Failed to fetch metadata for {token_mint} (helius). Status code:", response.status)
-                        result = {}
-            break  # Exit the loop if the function succeeds
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    result = result.get('result')
+                else:
+                    print(f"Failed to fetch metadata for {token_mint} (helius). Status code:", response.status)
+                    continue  # Continue to retry on failure
+            break  # Successful response
         except Exception as e:
+            print(f"An error occurred: {e}")
             if attempt < max_attempts - 1:
                 await asyncio.sleep(2 ** attempt)  # Exponential backoff
             else:
+                print("Maximum retry attempts reached, failing with exception")
                 raise  # Re-raise the last exception if all retries fail
+
+    if is_new_session:
+        await session.close()
 
     return result
 
@@ -760,65 +764,6 @@ async def get_dexscreener_data(token_mint):
         }
 
 
-async def get_full_dxs_data(token_mint):
-    url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
-    max_retries = 3  # Number of retries
-    retries = 0
-
-    while retries < max_retries:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        token_data = await response.json()  # This is a list of pools the token has open
-
-                        lp_creation_time = int(token_data['pairs'][0]['pairCreatedAt'] / 1000)
-                        fdv = int(token_data['pairs'][0]['fdv'])
-                        price = float(token_data['pairs'][0]['priceUsd'])
-                        liquidity = token_data['pairs'][0]["liquidity"]["usd"]
-
-                        buys_5m = token_data['pairs'][0]['txns']['m5']['buys']
-                        sells_5m = token_data['pairs'][0]['txns']['m5']['sells']
-                        volume_5m = token_data['pairs'][0]['volume']['m5']
-                        price_change_5m = token_data['pairs'][0]['priceChange']['m5']
-
-                        buys_1h = token_data['pairs'][0]['txns']['h1']['buys']
-                        sells_1h = token_data['pairs'][0]['txns']['h1']['sells']
-                        volume_1h = token_data['pairs'][0]['volume']['h1']
-                        price_change_1h = token_data['pairs'][0]['priceChange']['h1']
-
-                        return {
-                            'price': price,
-                            'fdv': fdv,
-                            'lp_creation_time': lp_creation_time,
-                            'liquidity': liquidity,
-                            'buys_5m': buys_5m,
-                            'sells_5m': sells_5m,
-                            'volume_5m': volume_5m,
-                            'price_change_5m': price_change_5m,
-
-                            'buys_1h': buys_1h,
-                            'sells_1h': sells_1h,
-                            'volume_1h': volume_1h,
-                            'price_change_1h': price_change_1h
-                        }
-
-                    else:
-                        raise Exception(f"Failed to fetch data, status code: {response.status}")
-
-        except Exception as e:
-            retries += 1
-            print(f"Error: {e}, DXS retrying in 10 seconds...: Mint: {token_mint}")
-            await asyncio.sleep(10)
-        else:
-            # If successful, exit the loop
-            break
-
-    if retries >= max_retries:
-        print("Failed to fetch data after retries.")
-        return {}
-
-
 async def is_older_than(token_mint, minutes=150):
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_mint}'
     max_retries = 3  # Number of retries
@@ -857,10 +802,15 @@ async def is_older_than(token_mint, minutes=150):
         return False
 
 
-async def get_num_holders(mint='', helius_key=helius_api_key):
-    url = f'https://mainnet.helius-rpc.com/?api-key={helius_key}'
+async def get_num_holders(mint='', helius_key=helius_api_key, session=None):
     url = rpc_url
-    async with aiohttp.ClientSession() as session:
+
+    is_new_session = False
+    if not session:
+        session = aiohttp.ClientSession()
+        is_new_session = True
+
+    async with session:
         page = 1
         all_owners = set()
 
@@ -884,6 +834,9 @@ async def get_num_holders(mint='', helius_key=helius_api_key):
                 for account in data['result']['token_accounts']:
                     all_owners.add(account['owner'])
                 page += 1
+
+        if is_new_session:
+            await session.close()
 
         return len(all_owners)
 

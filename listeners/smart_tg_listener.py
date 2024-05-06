@@ -1,12 +1,13 @@
 import json
 from telethon import TelegramClient, events
 from telethon.types import Channel
-from vet_tg_channel import extract_address_time_data, insert_address_time_into_db
+
+from telegramModule.vet_tg_channel import extract_address_time_data, insert_address_time_into_db
 
 config = {}
 
 try:
-    with open('config.json', 'r') as file:
+    with open('../telegramModule/config.json', 'r') as file:
         config = json.load(file)
 except:
     print("config.json required")

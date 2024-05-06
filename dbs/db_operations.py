@@ -132,12 +132,15 @@ async def user_exists(username: str, db_url=pg_db_url, pool=None):
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def mint_exists(token_mint, db_url=pg_db_url, pool=None):
+async def mint_exists(token_mint, db_url=pg_db_url, pool=None, table_name='metadata'):
     if pool:
         try:
             async with pool.acquire() as conn:  # Use a connection from the pool
-                query = "SELECT EXISTS(SELECT 1 FROM metadata WHERE token_mint = $1 LIMIT 1);"
-                exists = await conn.fetchval(query, token_mint)
+                if table_name in ['metadata', 'security']:
+                    query = f"SELECT EXISTS(SELECT 1 FROM {table_name} WHERE token_mint = $1 LIMIT 1);"
+                    exists = await conn.fetchval(query, token_mint)
+                else: return False
+
                 return bool(exists)
         except asyncpg.PostgresError as e:
             print(f"Database error: {e}")
@@ -164,53 +167,29 @@ async def mint_exists(token_mint, db_url=pg_db_url, pool=None):
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=5)
 async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
     if pool:
-        try:
-            async with pool.acquire() as conn:  # Use a connection from the pool
-                # Start a transaction
-                async with conn.transaction():
-                    # Insert into metadata table
-                    await conn.execute('''
-                            INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter,
-                             telegram, other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals,
-                             lp_address, initial_lp_supply)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-                            ON CONFLICT (token_mint) DO NOTHING
-                        ''',
-                                       data['token_mint'], data['symbol'], data['name'], data['img_url'],
-                                       data['starting_mc'], data['starting_liq'], data['twitter'], data['telegram'],
-                                       data['other_links'], data['lp_creation_time'], data['deployer'], data['bundled'],
-                                       data['airdropped'], data['supply'], data['decimals'], data['lp_address'],
-                                       data['initial_lp_supply']
-                                       )
-        except Exception as e:
-            print(f'An error occurred while adding metadata to db: {e}')
-
+        conn = await pool.acquire()
     else:
-        # Connect to the PostgreSQL database asynchronously
         conn = await asyncpg.connect(dsn=db_url)
-        try:
-            # Start a transaction
-            async with conn.transaction():
-                # Insert into metadata table
-                await conn.execute('''
-                            INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter,
-                            telegram, other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals,
-                            lp_address, initial_lp_supply)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-                            ON CONFLICT (token_mint) DO NOTHING
-                                        ''',
-                                   data['token_mint'], data['symbol'], data['name'], data['img_url'],
-                                   data['starting_mc'], data['starting_liq'], data['twitter'], data['telegram'],
-                                   data['other_links'], data['lp_creation_time'], data['deployer'], data['bundled'],
-                                   data['airdropped'], data['supply'], data['decimals'], data['lp_address'],
-                                   data['initial_lp_supply']
-                                   )
+    try:
+        # Insert into metadata table
+        await conn.execute('''
+                INSERT INTO metadata (token_mint, symbol, name, img_url, starting_mc, starting_liq, twitter,
+                 telegram, other_links, lp_creation_time, deployer, bundled, airdropped, supply, decimals,
+                 lp_address, initial_lp_supply)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                ON CONFLICT (token_mint) DO NOTHING
+            ''',
+                           data['token_mint'], data['symbol'], data['name'], data['img_url'],
+                           data['starting_mc'], data['starting_liq'], data['twitter'], data['telegram'],
+                           data['other_links'], data['lp_creation_time'], data['deployer'], data['bundled'],
+                           data['airdropped'], data['supply'], data['decimals'], data['lp_address'],
+                           data['initial_lp_supply']
+                           )
+    except Exception as e:
+        print(f'An error occurred while adding metadata to db: {e}')
 
-        except Exception as e:
-            print(f'An error occurred while adding metadata to db: {e}')
-            raise e
-        finally:
-            await conn.close()  # Ensure the connection is closed
+    finally:
+        await conn.close()  # Ensure the connection is closed
 
 
 # DONE(update with new schema)
