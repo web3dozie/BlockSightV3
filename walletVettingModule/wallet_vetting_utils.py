@@ -3,7 +3,6 @@ import time, aiohttp, asyncio, base58, asyncpg, random
 from pprint import pprint
 
 from priceDataModule.price_utils import is_win_trade, token_prices_to_db
-from metadataAndSecurityModule.metadataUtils import get_metadata
 
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError

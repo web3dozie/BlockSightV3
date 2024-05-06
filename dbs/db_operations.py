@@ -2,6 +2,7 @@ from pprint import pprint
 
 import asyncpg, backoff
 
+from walletVettingModule.wallet_vetting_utils import determine_wallet_grade
 
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
 
@@ -304,12 +305,25 @@ async def update_txs_db(txs_data, db_url=pg_db_url, pool=None):
             await conn.close()  # Ensure the connection is always closed
 
 
-async def useful_wallets(db_path=pg_db_url):
-    # TODO -> determines if a wallet is useful based on its stats
-    # TODO -> Returns a list of useful wallets.
+async def useful_wallets(pool=None):
+    smart_wallets = []
 
-    # TODO will be used by the TX pipeline
-    pass
+    async with pool.acquire() as conn:
+
+        query = "SELECT wallet, trades, win_rate, avg_size, pnl FROM wallets WHERE trades >= 5"
+        rows = await conn.fetch(query)
+
+        for wallet in rows:
+            grades = determine_wallet_grade(
+                wallet['trades'], wallet['win_rate'], wallet['avg_size'], wallet['pnl']
+            )
+            if grades.get('overall_grade') in ['SS', 'S', 'A+']:
+                smart_wallets.append(wallet['wallet'])
+
+    return smart_wallets
+
+
+
 
 
 async def get_symbol_with_mint(mint, pool=None):
@@ -344,6 +358,7 @@ async def get_tx_list(wallet, pool=None, conn=None):
     rows = await conn.fetch(query, wallet)
 
     tx_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
+
 
     return tx_list
 

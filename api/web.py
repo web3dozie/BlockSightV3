@@ -111,7 +111,7 @@ async def web_get_user_info():
         return user_data
     except Exception as e:
         current_app.logger.error(e)
-        return "internal Server Error", 500        
+        return "Internal Server Error", 500
 
 
 @web_blueprint.route("/analyse-wallet/<wallet_address>")

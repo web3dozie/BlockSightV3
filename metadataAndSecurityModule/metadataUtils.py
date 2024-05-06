@@ -802,43 +802,35 @@ async def is_older_than(token_mint, minutes=150):
         return False
 
 
-async def get_num_holders(mint='', helius_key=helius_api_key, session=None):
-    url = rpc_url
+async def get_num_holders(mint='', session=None, birdeye_api_key='813c7191c5f24a519e2325ad1649823d'):
+    url = f'https://public-api.birdeye.so/defi/token_overview?address={mint}'
+    headers = {
+        'X-API-KEY': birdeye_api_key,
+        'x-chain': 'solana'
+    }
 
-    is_new_session = False
-    if not session:
+    if session is None:
         session = aiohttp.ClientSession()
         is_new_session = True
+    else:
+        is_new_session = False
 
-    async with session:
-        page = 1
-        all_owners = set()
+    retries = 3
+    delay = 0.25
 
-        while True:
-            payload = {
-                "jsonrpc": "2.0",
-                "method": "getTokenAccounts",
-                "id": "helius-test",
-                "params": {
-                    "page": page,
-                    "limit": 1000,
-                    "displayOptions": {},
-                    "mint": mint,
-                },
-            }
-            async with session.post(url, json=payload) as response:
-                data = await response.json()
-                if not data.get('result') or len(data['result']['token_accounts']) == 0:
-                    break
-
-                for account in data['result']['token_accounts']:
-                    all_owners.add(account['owner'])
-                page += 1
-
+    try:
+        for attempt in range(retries + 1):
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get('data', {}).get('holder')
+                else:
+                    if attempt < retries:
+                        await asyncio.sleep(delay)  # Wait before retrying
+                    else:
+                        return None  # Return None after exhausting retries
+    finally:
         if is_new_session:
             await session.close()
-
-        return len(all_owners)
-
 
 

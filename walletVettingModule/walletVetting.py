@@ -26,7 +26,6 @@ async def main():
             if retv is not None:
                 remove_wallet_from_csv('./wallet_counts.csv', wallet)
 
-
     # Create tasks list
     tasks = [process_wallet_with_semaphore(wallet) for wallet in wallet_list]
 

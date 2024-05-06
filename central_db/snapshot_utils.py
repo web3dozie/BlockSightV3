@@ -4,6 +4,8 @@ import asyncio, aiohttp, time, ast
 from pprint import pprint
 from solana.rpc.api import Client
 from solders.pubkey import Pubkey
+
+from dbs.db_operations import useful_wallets
 from metadataAndSecurityModule.metadataUtils import rpc_url, get_data_from_helius, get_metadata, get_num_holders
 
 
@@ -79,22 +81,20 @@ async def get_full_dxs_data(token_mint):
 
 async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None):
     # ------ Initialize data ----- #
-    client = Client(rpc_url)
-    mint_pubkey = Pubkey.from_string(token_mint)
-
-    async def data_for_holders():
-        return [d['uiAmount'] for d in ast.literal_eval(client.get_token_largest_accounts(mint_pubkey)
-                                                                .to_json())['result']['value']]
 
     # Run all four I/O bound tasks concurrently
     token_data_future = get_data_from_helius(token_mint, session=session)
     token_metadata_future = get_metadata(token_mint, pool=pool)
     holders_future = get_num_holders(mint=token_mint, session=session)
-    data_folders_future = data_for_holders()
 
     # Gather results from all tasks
-    token_data, token_metadata, holders, holders_data = await asyncio.gather(token_data_future, token_metadata_future,
-                                                                             holders_future, data_folders_future)
+    token_data, token_metadata, holders = await asyncio.gather(token_data_future, token_metadata_future,
+                                                               holders_future)
+
+    client = Client(rpc_url)
+    mint_pubkey = Pubkey.from_string(token_mint)
+    holders_data = [d['uiAmount'] for d in ast.literal_eval(client.get_token_largest_accounts(mint_pubkey)
+                                                                .to_json())['result']['value']]
 
     # ------                         ----- #
 
@@ -111,6 +111,7 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
             lp_current_supply = 1
             lp_initial_supply = 2
         else:
+            print('LP DATA TRIGGERED')
             lp_data = await get_data_from_helius(lp_address)
             lp_decimals = lp_data['token_info']['decimals']
             lp_current_supply = round(((lp_data['token_info']['supply']) / (10 ** lp_decimals)), 2)
@@ -144,22 +145,85 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
     return snapshot_data
 
 
-async def get_smart_wallets_data(token_mint, pool=None):
-    '''
-        GET SMART WALLETS (ALL WALLETS -> CHECK GRADES -> KEEP VALID ONES)
+async def get_smart_wallets_data(token_mint, pool, sol_price, window=''):
+    smart_wallets = await useful_wallets(pool=pool)
+    pprint(len(smart_wallets))
 
-        BUYS -> GET COUNT TXS (WHERE WALLETS IN SMART_WALLETS AND IN_MINT IN (SOL, USDT, USDC, WSOL) AND OUT_MINT = token_mint
-        BUY VOLUME -> SUM(IN_MINT) FOR BUYS
+    if window == '5m':
+        time_ago = int(time.time()) - (5 * 60)
+    elif window == '1h':
+        time_ago = int(time.time()) - (60 * 60)
+    elif window == '6h':
+        time_ago = int(time.time()) - (6 * 60 * 60)
+    else: return
 
-        SELLS -> GET COUNT TXS (WHERE WALLETS IN SMART_WALLETS AND OUT_MINT IN (SOL, USDT, USDC, WSOL) AND IN_MINT = token_mint
-        BUY VOLUME -> SUM(OUT_MINT) FOR SELLS
+    query = """
+    WITH buy_transactions AS (
+        SELECT
+            COUNT(*) AS buy_count,
+            SUM(CASE 
+                    WHEN in_mint = 'So11111111111111111111111111111111111111112' THEN in_amt * $1
+                    WHEN in_mint = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' THEN in_amt
+                    WHEN in_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN in_amt
+                    ELSE 0 
+                END) * -1 AS buy_volume
+        FROM txs
+        WHERE
+            wallet = ANY($2) AND
+            in_mint IN ('So11111111111111111111111111111111111111112', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+             'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') AND
+            out_mint = $3 AND
+            timestamp >= $4
+    ),
+    sell_transactions AS (
+        SELECT
+            COUNT(*) AS sell_count,
+            SUM(CASE 
+                    WHEN out_mint = 'So11111111111111111111111111111111111111112' THEN out_amt * $1
+                    WHEN out_mint = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' THEN out_amt
+                    WHEN out_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN out_amt
+                    ELSE 0 
+                END) AS sell_volume
+        FROM txs
+        WHERE
+            wallet = ANY($2) AND
+            out_mint IN ('So11111111111111111111111111111111111111112', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+             'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') AND
+            in_mint = $3 AND
+            timestamp >= $4
+    )
+    SELECT
+        buy_count,
+        sell_count,
+        (buy_volume + sell_volume) AS total_volume,
+        (sell_volume - buy_volume) AS netflows
+    FROM buy_transactions, sell_transactions;
+    """
 
-        TOTAL VOLUME -> SELL VOLUME + BUY VOLUME
-        NETFLOWS -> SELL VOLUME - BUY VOLUME
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow(query, sol_price, smart_wallets, token_mint, time_ago)
 
-        RETURN BUYS, SELLS, TOTAL_VOLUME, NETFLOWS
-    '''
-    return
+    buys, sells, total_volume, netflows = (result['buy_count'], result['sell_count'], result['total_volume'],
+                                           result['netflows'])
+    return {
+        f'smart_buys_{window}': buys,
+        f'smart_sells_{window}': sells,
+        f'smart_volume_{window}': 0 if total_volume is None else total_volume,
+        f'smart_netflows_{window}': 0 if netflows is None else netflows
+    }
+
+
+async def get_smart_wallets_data_wrapper(token_mint, pool, sol_price=150):  # TODO CACHE SOL_PRICE SOMEWHERE
+    # Collect results concurrently
+    smart_5m, smart_1h, smart_6h = await asyncio.gather(
+        get_smart_wallets_data(token_mint, pool, sol_price, window='5m'),
+        get_smart_wallets_data(token_mint, pool, sol_price, window='1h'),
+        get_smart_wallets_data(token_mint, pool, sol_price, window='6h')
+    )
+
+    # Merge results
+    return {**smart_5m, **smart_1h, **smart_6h}
+
 
 
 
