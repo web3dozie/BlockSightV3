@@ -1,11 +1,9 @@
-import datetime, asyncio, re, aiohttp, json, asyncpg, time
+import datetime, asyncio, re, aiohttp, json, time
 from pprint import pprint
 
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 
-config = {
-}
 
 try:
     with open('config.json', 'r') as file:
@@ -16,23 +14,17 @@ except:
 
 api_id = config["api_id"]
 api_hash = config["api_hash"]
-
 blocksight_api = config["blockSightApi"]
 dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
 
 
-async def insert_address_time_into_db(db_url=blocksight_db_url, addressTimeData: dict = None, channelId=None):
+async def insert_address_time_into_db(addressTimeData: dict = None, channelId=None, pool=None):
     records_to_insert = []
     for k, v in addressTimeData.items():
         records_to_insert.append((k, channelId, v,))
 
-    try:
-        conn = await asyncpg.connect(dsn=db_url)
-        print("Connected to the database")
-    except Exception as e:
-        print(f"Error {e} while connecting to the database")
-        raise e
+    conn = await pool.acquire()
 
     try:
         await conn.execute('''
@@ -55,16 +47,15 @@ async def insert_address_time_into_db(db_url=blocksight_db_url, addressTimeData:
         raise e
     finally:
         await conn.close()
-        print("Connection closed")
 
-    print("tg calls inserted")
+    print("TG Calls Inserted")
 
 
 async def extract_address_time_data(messages) -> dict:
     addressTimeData = {}
     potentialAddresses = {}
-    dexIDs = []
 
+    dexIDs = []
     for message in messages:
         dexMatches = re.findall(r'(?:https://)?dexscreener.com/solana/\w+', message.message)
         if dexMatches:
@@ -86,7 +77,7 @@ async def extract_address_time_data(messages) -> dict:
                 if match not in potentialAddresses.keys():
                     potentialAddresses[match] = int(message.date.timestamp())
 
-    checkDexSemaphore = asyncio.Semaphore(2)
+    checkDexSemaphore = asyncio.Semaphore(3)
 
     async def dex_id_to_token(dex_id):
         token_found = False
@@ -126,7 +117,7 @@ async def extract_address_time_data(messages) -> dict:
         tasks = [dex_id_to_token(dex_id) for dex_id in dexIDs]
         await asyncio.gather(*tasks)
 
-    verifySemaphore = asyncio.Semaphore(2)
+    verifySemaphore = asyncio.Semaphore(3)
 
     async def verify_token_mint(address):
         async with verifySemaphore:
@@ -149,10 +140,10 @@ async def extract_address_time_data(messages) -> dict:
     return addressTimeData
 
 
-async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=None, pool=None):
+async def vetChannel(channel='', window=30, tg_client=None, pool=None):
     print(f"Vetting  channel {channel}")
 
-    async def is_outdated_channel(channel_id, pl=None):
+    async def is_outdated_channel(channel_id: int, pl=None):
         """
         Connect to DB, Check if the channel ID exists and if it is too old
         Returns a bool depending on the result
@@ -160,11 +151,11 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
         qry = "SELECT last_updated FROM channel_stats WHERE channel_id = $1"
 
         try:
-            cnn = pl.acquire()
+            cnn = await pl.acquire()
             last_seen = await cnn.fetchval(qry, channel_id)
-        except Exception as e:
-            print(f"Error {e} while fetching channel last seen from blockSight's db")
-            raise e
+        except Exception as out_error:
+            print(f"Error {out_error} while fetching channel last seen from blockSight's db")
+            raise out_error
 
         if not last_seen:
             return True
@@ -185,11 +176,7 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
                 print(f"An unexpected error occurred, {e}")
                 raise e
 
-            try:
-                conn = await asyncpg.connect(dsn=db_url)
-            except Exception as e:
-                print(f"Error {e} while connecting to blockSight's db")
-                raise e
+            conn = await pool.acquire()
 
             if await is_outdated_channel(channel_entity.channel_id, pl=pool):
                 query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
@@ -212,7 +199,7 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
 
                 thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
                 if days_of_data_to_fetch > 0:
-                    print("fetching new messages")
+                    print("Fetching New Messages")
                     while True:
                         old_len = len(messages)
                         messages.extend((await client(GetHistoryRequest(
@@ -245,7 +232,7 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
                     addressTimeData = await extract_address_time_data(messages)
 
                     await insert_address_time_into_db(addressTimeData=addressTimeData,
-                                                      channelId=channel_entity.channel_id)
+                                                      channelId=channel_entity.channel_id, pool=pool)
     else:
         client = tg_client
         await client.start()
@@ -258,13 +245,9 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
             print(f"An unexpected error occurred, {e}")
             raise e
 
-        try:
-            conn = await asyncpg.connect(dsn=db_url)
-        except Exception as e:
-            print(f"Error {e} while connecting to blockSight's db")
-            raise e
+        conn = await pool.acquire()
 
-        if await is_outdated_channel(channel_entity.channel_id):
+        if await is_outdated_channel(channel_entity.channel_id, pl=pool):
             query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
             last_db_tx_timestamp = await conn.fetchval(query, channel_entity.channel_id)
 
@@ -283,10 +266,9 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
             breakoff_point = offset_date - datetime.timedelta(days=days_of_data_to_fetch)
 
             messages = []
-
             thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
             if days_of_data_to_fetch > 0:
-                print("fetching new messages")
+                print("Fetching New Messages")
                 while True:
                     old_len = len(messages)
                     messages.extend((await client(GetHistoryRequest(
@@ -317,11 +299,12 @@ async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=
                 addressTimeData = await extract_address_time_data(messages)
 
                 await insert_address_time_into_db(addressTimeData=addressTimeData,
-                                                  channelId=channel_entity.channel_id)
+                                                  channelId=channel_entity.channel_id, pool=pool)
 
     query = "SELECT token_mint, timestamp FROM tg_calls WHERE channel_id = $1 and timestamp >= $2"
-    conn = await asyncpg.connect(dsn=db_url)
+    conn = await pool.acquire()
     tg_calls = await conn.fetch(query, channel_entity.channel_id, (int(time.time()) - window * 24 * 60 * 60))
+
     winCheckSemaphore = asyncio.Semaphore(30)
 
     async def check_if_win(address, timestamp):

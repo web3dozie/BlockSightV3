@@ -15,7 +15,7 @@ core_blueprint = Blueprint('core', __name__)
 @core_blueprint.route("/analyse-wallet/<wallet_address>")
 async def analyse_wallet(wallet_address):
     window = request.args.get("window", default=30, type=int)
-    format = request.args.get("format", default=False, type=bool)
+    fmt = request.args.get("format", default=False, type=bool)
     include_txs = request.args.get("include_txs", default=False, type=bool)
 
     if not is_valid_wallet(wallet_address):
@@ -29,7 +29,7 @@ async def analyse_wallet(wallet_address):
             tx_list = await get_tx_list(wallet_address, pool=current_app.pool)
             wallet_data['tx_list'] = tx_list
 
-        if not format:
+        if not fmt:
             return wallet_data
 
         grades = determine_wallet_grade(wallet_data['trades'], float(wallet_data['win_rate']),
@@ -79,7 +79,7 @@ async def api_is_win_trade():
 async def vet_channel(tg_channel):
     print('API STARTED')
     window = request.args.get("window", default=30, type=int)
-    format = request.args.get("format", default=False, type=bool)
+    fmt = request.args.get("format", default=False, type=bool)
 
     if not tg_channel:
         return "bad request", 400
@@ -88,7 +88,7 @@ async def vet_channel(tg_channel):
     try:
         retv = await vetChannel(tg_channel, window=window, pool=current_app.pool)
         print('VET SUCCEEDED')
-        if not format:
+        if not fmt:
             return retv
 
         grades = determine_tg_grade(retv["trade_count"], retv["win_rate"], retv["time_window"])
@@ -101,7 +101,6 @@ async def vet_channel(tg_channel):
 
 @core_blueprint.route("/discord-redirect")
 async def handle_discord_redirect():
-    config = {}
 
     try:
         with open('config.json', 'r') as file:
@@ -130,8 +129,6 @@ async def handle_discord_redirect():
         'Content-Type': 'application/x-www-form-urlencoded'
     }
 
-    access_token = None
-
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post("https://discord.com/api/oauth2/token", headers=headers, data=data) as response:
@@ -146,7 +143,6 @@ async def handle_discord_redirect():
         print(f"Exception {e} while getting access token")
         return "Internal Server Error", 500
 
-    user_info = None
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get("https://discord.com/api/v10/users/@me",
@@ -172,7 +168,6 @@ async def handle_discord_redirect():
             " and verify to use the Telegram bot</p>")
 
 
-# TODO Maybe put in web.py for auth gating, problem will be the pool object to use
 # we can use the same pool object man. I'll put it in web.
 @core_blueprint.route("/get-wallets-leaderboard")
 async def wallets_leaderboard():

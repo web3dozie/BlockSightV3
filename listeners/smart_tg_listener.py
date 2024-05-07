@@ -17,7 +17,7 @@ api_id = config["api_id"]
 api_hash = config["api_hash"]
 
 
-async def listen_for_calls():
+async def listen_for_calls(pool=None):
     async with TelegramClient('anon', api_id, api_hash) as client:
         @client.on(events.NewMessage(chats=Channel))
         async def handle_new_message(event):
@@ -26,7 +26,8 @@ async def listen_for_calls():
             addressTimeData = await extract_address_time_data(messages)
 
             if len(addressTimeData.keys()) > 0:
-                await insert_address_time_into_db(addressTimeData=addressTimeData, channelId=event.message.peer_id)
+                await insert_address_time_into_db(addressTimeData=addressTimeData,
+                                                  channelId=event.message.peer_id, pool=pool)
 
         await client.start()
         await client.run_until_disconnected()

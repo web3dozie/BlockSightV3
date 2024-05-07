@@ -17,7 +17,6 @@ async def check_id(telegram_id):
     if not telegram_id:
         return "Bad request", 400
 
-    retv = False
     try:
         userid = await get_userid_from_tg_id(telegram_id)
         if not userid:
