@@ -3,7 +3,9 @@
  It interfaces with pg db tables such as wallets, metadata, and token_prices
  to retrieve and update wallet information.
 """
+import asyncpg
 
+from dbs.db_operations import pg_db_url
 from process_wallets_utils import wallet_processor, read_csv_wallets, remove_wallet_from_csv
 from walletVettingModule.wallet_vetting_utils import process_wallet
 import asyncio
@@ -18,10 +20,12 @@ async def main():
     # Create a semaphore to limit concurrent tasks to 10
     semaphore = asyncio.Semaphore(10)
 
+    pool = await asyncpg.create_pool(dsn=pg_db_url)
+
     # Define an asynchronous function to process a wallet with semaphore control
     async def process_wallet_with_semaphore(wallet):
         async with semaphore:
-            retv = await process_wallet(wallet)
+            retv = await process_wallet(wallet, pool=pool)
             print("processed wallet", retv)
             if retv is not None:
                 remove_wallet_from_csv('./wallet_counts.csv', wallet)

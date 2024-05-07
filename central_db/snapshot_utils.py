@@ -251,7 +251,6 @@ async def get_smart_tg_calls(token_mint, pool, smart_channels, window=''):
 
 
 async def get_smart_tg_calls_wrapper(token_mint, pool):
-    return {}
     # TODO implement useful_channels
     smart_channels = []
     # smart_channels = await useful_channels(pool=pool)
