@@ -86,7 +86,7 @@ async def vet_channel(tg_channel):
 
     print('VET STARTED')
     try:
-        retv = await vetChannel(tg_channel, window=window)
+        retv = await vetChannel(tg_channel, window=window, pool=current_app.pool)
         print('VET SUCCEEDED')
         if not format:
             return retv

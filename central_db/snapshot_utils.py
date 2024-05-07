@@ -145,9 +145,7 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
     return snapshot_data
 
 
-async def get_smart_wallets_data(token_mint, pool, sol_price, window=''):
-    smart_wallets = await useful_wallets(pool=pool)
-    pprint(len(smart_wallets))
+async def get_smart_wallets_data(token_mint, pool, sol_price, smart_wallets, window=''):
 
     if window == '5m':
         time_ago = int(time.time()) - (5 * 60)
@@ -214,16 +212,39 @@ async def get_smart_wallets_data(token_mint, pool, sol_price, window=''):
 
 
 async def get_smart_wallets_data_wrapper(token_mint, pool, sol_price=150):  # TODO CACHE SOL_PRICE SOMEWHERE
+    smart_wallets = await useful_wallets(pool=pool)
+
     # Collect results concurrently
     smart_5m, smart_1h, smart_6h = await asyncio.gather(
-        get_smart_wallets_data(token_mint, pool, sol_price, window='5m'),
-        get_smart_wallets_data(token_mint, pool, sol_price, window='1h'),
-        get_smart_wallets_data(token_mint, pool, sol_price, window='6h')
+        get_smart_wallets_data(token_mint, pool, sol_price, window='5m', smart_wallets=smart_wallets),
+        get_smart_wallets_data(token_mint, pool, sol_price, window='1h', smart_wallets=smart_wallets),
+        get_smart_wallets_data(token_mint, pool, sol_price, window='6h', smart_wallets=smart_wallets)
     )
 
     # Merge results
     return {**smart_5m, **smart_1h, **smart_6h}
 
 
+async def get_tg_calls(token_mint, pool, smart_channels, window=''):
+    if window == '5m':
+        time_ago = int(time.time()) - (5 * 60)
+    elif window == '1h':
+        time_ago = int(time.time()) - (60 * 60)
+    elif window == '6h':
+        time_ago = int(time.time()) - (6 * 60 * 60)
+    else:
+        return
 
+    query = """
+    SELECT COUNT(*) AS calls FROM tg_calls
+    WHERE 
+        channel_id = ANY($1) AND
+        token_mint = $2 AND
+        timestamp >= $3
+    );
+    """
 
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow(query, smart_channels, token_mint, time_ago)
+
+    return {f'smart_tg_calls{window}': result['calls']}

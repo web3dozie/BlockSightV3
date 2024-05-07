@@ -16,7 +16,7 @@ except:
 
 api_id = config["api_id"]
 api_hash = config["api_hash"]
-tg_channel = "MadarasGambles"
+
 blocksight_api = config["blockSightApi"]
 dex_api = config["dexApi"]
 blocksight_db_url = config["blockSightDB"]
@@ -149,18 +149,19 @@ async def extract_address_time_data(messages) -> dict:
     return addressTimeData
 
 
-async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=30, tg_client=None):
+async def vetChannel(channel='', db_url=blocksight_db_url, window=30, tg_client=None, pool=None):
     print(f"Vetting  channel {channel}")
-    async def is_outdated_channel(channel_id, db_url=blocksight_db_url):
+
+    async def is_outdated_channel(channel_id, pl=None):
         """
         Connect to DB, Check if the channel ID exists and if it is too old
         Returns a bool depending on the result
         """
-        query = "SELECT last_updated FROM channel_stats WHERE channel_id = $1"
+        qry = "SELECT last_updated FROM channel_stats WHERE channel_id = $1"
 
         try:
-            conn = await asyncpg.connect(dsn=db_url)
-            last_seen = await conn.fetchval(query, channel_id)
+            cnn = pl.acquire()
+            last_seen = await cnn.fetchval(qry, channel_id)
         except Exception as e:
             print(f"Error {e} while fetching channel last seen from blockSight's db")
             raise e
@@ -190,7 +191,7 @@ async def vetChannel(channel=tg_channel, db_url=blocksight_db_url, window=30, tg
                 print(f"Error {e} while connecting to blockSight's db")
                 raise e
 
-            if await is_outdated_channel(channel_entity.channel_id):
+            if await is_outdated_channel(channel_entity.channel_id, pl=pool):
                 query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
                 last_db_tx_timestamp = await conn.fetchval(query, channel_entity.channel_id)
 

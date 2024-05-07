@@ -14,11 +14,11 @@ from walletVettingModule.wallet_vetting_utils import fetch_wallet_leaderboard
 
 async def main():
     pool = await asyncpg.create_pool(dsn=pg_db_url)
-    mint = '7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr'
+    mint = 'EvWjVFzRi3Da3GvNJxC6mWnXE5R8MePcvQ8McGPGodTi'
     start = float(time.time())
-    # x = await get_smart_wallets_data_wrapper(mint, pool=pool)
+    x = await get_smart_wallets_data_wrapper(mint, pool=pool)
     # x = await get_full_dxs_data(mint)
-    x = await get_metadata_security_for_snapshot(mint, pool=pool)
+    # x = await get_metadata_security_for_snapshot(mint, pool=pool)
     end = float(time.time())
 
     pprint(x)
