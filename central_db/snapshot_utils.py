@@ -1,4 +1,3 @@
-
 import asyncio, aiohttp, time, ast
 
 from pprint import pprint
@@ -94,7 +93,7 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
     client = Client(rpc_url)
     mint_pubkey = Pubkey.from_string(token_mint)
     holders_data = [d['uiAmount'] for d in ast.literal_eval(client.get_token_largest_accounts(mint_pubkey)
-                                                                .to_json())['result']['value']]
+                                                            .to_json())['result']['value']]
 
     # ------                         ----- #
 
@@ -146,14 +145,14 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
 
 
 async def get_smart_wallets_data(token_mint, pool, sol_price, smart_wallets, window=''):
-
     if window == '5m':
         time_ago = int(time.time()) - (5 * 60)
     elif window == '1h':
         time_ago = int(time.time()) - (60 * 60)
     elif window == '6h':
         time_ago = int(time.time()) - (6 * 60 * 60)
-    else: return
+    else:
+        return
 
     query = """
     WITH buy_transactions AS (
@@ -225,7 +224,8 @@ async def get_smart_wallets_data_wrapper(token_mint, pool, sol_price=150):  # TO
     return {**smart_5m, **smart_1h, **smart_6h}
 
 
-async def get_tg_calls(token_mint, pool, smart_channels, window=''):
+async def get_smart_tg_calls(token_mint, pool, smart_channels, window=''):
+    return {}
     if window == '5m':
         time_ago = int(time.time()) - (5 * 60)
     elif window == '1h':
@@ -248,3 +248,30 @@ async def get_tg_calls(token_mint, pool, smart_channels, window=''):
         result = await conn.fetchrow(query, smart_channels, token_mint, time_ago)
 
     return {f'smart_tg_calls{window}': result['calls']}
+
+
+async def get_smart_tg_calls_wrapper(token_mint, pool):
+    return {}
+    # TODO implement useful_channels
+    smart_channels = []
+    # smart_channels = await useful_channels(pool=pool)
+
+    # Collect results concurrently
+    smart_5m, smart_1h, smart_6h = await asyncio.gather(
+        get_smart_tg_calls(token_mint=token_mint, pool=pool, smart_channels=smart_channels, window='5m'),
+        get_smart_tg_calls(token_mint=token_mint, pool=pool, smart_channels=smart_channels, window='1h'),
+        get_smart_tg_calls(token_mint=token_mint, pool=pool, smart_channels=smart_channels, window='6h')
+    )
+
+    # Merge results
+    return {**smart_5m, **smart_1h, **smart_6h}
+
+
+async def take_snapshot(token_mint, pool=None, sol_price=150):
+    dxs, met_sec, smt_wlt, smt_tg = await asyncio.gather(get_full_dxs_data(token_mint),
+                                                         get_metadata_security_for_snapshot(token_mint, pool=pool),
+                                                         get_smart_wallets_data_wrapper(token_mint, pool=pool,
+                                                                                        sol_price=sol_price),
+                                                         get_smart_tg_calls_wrapper(token_mint, pool))
+
+    return {**dxs, **met_sec, **smt_wlt, **smt_tg, **{'token_mint': token_mint, 'call_time': int(time.time())}}

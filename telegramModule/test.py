@@ -10,6 +10,7 @@ with open('channels.txt') as file:
     lines = file.readlines()
 
 telegram_channels = [line.strip() for line in lines]
+telegram_channels = telegram_channels[5:]
 print(telegram_channels)
 
 

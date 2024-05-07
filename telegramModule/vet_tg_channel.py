@@ -1,4 +1,5 @@
 import datetime, asyncio, re, aiohttp, json, time
+import random
 from pprint import pprint
 
 from telethon import TelegramClient
@@ -77,7 +78,7 @@ async def extract_address_time_data(messages) -> dict:
                 if match not in potentialAddresses.keys():
                     potentialAddresses[match] = int(message.date.timestamp())
 
-    checkDexSemaphore = asyncio.Semaphore(3)
+    checkDexSemaphore = asyncio.Semaphore(1)
 
     async def dex_id_to_token(dex_id):
         token_found = False
@@ -117,12 +118,12 @@ async def extract_address_time_data(messages) -> dict:
         tasks = [dex_id_to_token(dex_id) for dex_id in dexIDs]
         await asyncio.gather(*tasks)
 
-    verifySemaphore = asyncio.Semaphore(3)
+    verifySemaphore = asyncio.Semaphore(1)
 
     async def verify_token_mint(address):
         async with verifySemaphore:
             async with aiohttp.ClientSession() as session:
-                print("Making Helius Call")
+                print(f"Making Helius Call{random.randint(1, 6)}")
                 async with session.get(f"{blocksight_api}/core/verify-token-mint/{address}") as response:
                     if response.status == 200:
                         result = await response.json()
