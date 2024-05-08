@@ -3,6 +3,9 @@
  It interfaces with pg db tables such as wallets, metadata, and token_prices
  to retrieve and update wallet information.
 """
+import time
+from pprint import pprint
+
 import asyncpg
 
 from dbs.db_operations import pg_db_url
@@ -16,27 +19,35 @@ async def main():
     # wallet_processor('./wallet_zips')
 
     wallet_list = read_csv_wallets('./wallet_counts.csv')
+    semaphore = asyncio.Semaphore(9)
 
-    # Create a semaphore to limit concurrent tasks to 10
-    semaphore = asyncio.Semaphore(10)
+    # Try to initialize the pool
+    try:
+        pool = await asyncpg.create_pool(dsn=pg_db_url)
+    except Exception as e:
+        print(f"Failed to create pool: {e}")
+        return
 
-    pool = await asyncpg.create_pool(dsn=pg_db_url)
-
-    # Define an asynchronous function to process a wallet with semaphore control
     async def process_wallet_with_semaphore(wallet):
         async with semaphore:
-            retv = await process_wallet(wallet, pool=pool)
-            print("processed wallet", retv)
+            start = time.time()
+            try:
+                retv = await process_wallet(wallet, pool=pool)
+            except Exception as e:
+                print(f"Error processing wallet {wallet}: {e}")
+                return
+            end = time.time()
+            pprint(f"Processed {wallet} in {end-start:.2f} seconds")
             if retv is not None:
                 remove_wallet_from_csv('./wallet_counts.csv', wallet)
 
-    # Create tasks list
+    wallet_list = list(reversed(wallet_list))
     tasks = [process_wallet_with_semaphore(wallet) for wallet in wallet_list]
 
-    # Wait for all tasks to complete
-    await asyncio.gather(*tasks)
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        await pool.close()
 
-
-# Ensure asyncio.run is only called when running the script directly
 if __name__ == '__main__':
     asyncio.run(main())

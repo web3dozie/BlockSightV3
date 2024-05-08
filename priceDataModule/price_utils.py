@@ -31,7 +31,7 @@ async def token_exists(token_mint, db_url=pg_db_url, conn=None):
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=pg_db_url, conn=None):
+async def update_price_data(token_mint, start_timestamp, end_timestamp, pool=None):
     # Fetch and insert price data into the database
 
     url = (f"https://public-api.birdeye.so/defi/history_price?address={token_mint}&address_type"
@@ -46,7 +46,7 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
     while retries < max_retries:
         try:
-            await asyncio.sleep(random.randint(2, 10)) # trying to avoid 429's
+            await asyncio.sleep(1)  # trying to avoid 429's
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
@@ -65,17 +65,13 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
     if price_data is None:
         return
-    
+
     try:
         items = price_data.get("data", {}).get("items", [])
 
         records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
 
-        using_conn = False
-
-        if conn is None:
-            conn = await asyncpg.connect(dsn=db_url)
-            using_conn = True
+        conn = await pool.acquire()
 
         try:
             async with conn.transaction():
@@ -98,61 +94,42 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, db_url=p
 
                 await conn.execute('DROP TABLE tmp_token_prices;')
         finally:
-            if using_conn:
-                await conn.close()
+            await conn.close()
     except Exception as e:
         print(f"Unexpected error from update_price_data: {e}")
         # Optionally, re-raise the exception if you want the calling function to handle it
         raise e
 
 
-async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=None, db_url=pg_db_url):
-    # Define extreme values for the timestamps
-    MIN_TIMESTAMP = int(time.time()) - (30 *24 * 60 * 60) - (60*60) # 29 days, 23 hours ago
-    MAX_TIMESTAMP = int(time.time())  # right now
+async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=None):
+    MAX_TIMESTAMP = int(time.time()) - (3 * 60 * 60)
 
-    async def wrapper(conn):
-        # Check if the token exists and fetch min/max timestamps in a single query
+    async def wrapper(pool):
+        async with pool.acquire() as conn:
             result = await conn.fetchrow(
                 "SELECT MIN(timestamp) AS min_timestamp, MAX(timestamp) AS max_timestamp "
                 "FROM token_prices WHERE token_mint = $1",
                 token_mint
             )
-            min_timestamp, max_timestamp = result if result else (None, None)
+            min_timestamp, max_timestamp = result if result else (0, 0)
 
-            if min_timestamp is None:  # Implies token does not exist
-                await update_price_data(token_mint, start_timestamp, end_timestamp, conn=conn)
+            if not min_timestamp:
+                # token is brand new --> get prices from start_timestamp to end_timestamp
+                await update_price_data(token_mint, start_timestamp, end_timestamp, pool=pool)
             else:
-                # Initialize min/max_timestamp if they are None
-                min_timestamp = min_timestamp or MAX_TIMESTAMP
-                max_timestamp = max_timestamp or MIN_TIMESTAMP
+                if max_timestamp >= MAX_TIMESTAMP: return
 
-                # Adjust the range for fetching data to avoid duplication
-                if start_timestamp < min_timestamp:
-                    await update_price_data(token_mint, start_timestamp, min_timestamp, conn=conn)
-                if end_timestamp > (max_timestamp + (3 * 60 * 60)):  # Adding a buffer of 3 hours
-                    await update_price_data(token_mint, max_timestamp, end_timestamp, conn=conn)
+                await update_price_data(token_mint, max_timestamp, end_timestamp, pool=pool)
 
-    if pool is None:
-        try:
-            conn = await asyncpg.connect(dsn=db_url)
-            await wrapper(conn)
-        except Exception as e:
-            print(f"Error From token_prices_to_db: {e}")
-        finally:
-            conn.close()
-    else:
-        try:
-            async with pool.acquire() as conn:
-                await wrapper(conn)        
-        except Exception as e:
-            print(f"Error From token_prices_to_db: {e}")
-# CHECK ATH FROM CALL
-# Takes a timestamp, token mint, price
-# If token in db
-# Fetch prices from most recent time in db to right now
-# Else fetch for the last 30 days
-# Returns max price after start timestamp
+                print(f'Updated price data for {token_mint}')
+
+    try:
+        await wrapper(pool)
+    except Exception as e:
+        print(f"Error From token_prices_to_db: {e}")
+
+
+
 
 async def max_timestamp(token_mint, db_url=pg_db_url):
     # Connect to the PostgreSQL database using asyncpg
@@ -189,20 +166,8 @@ async def max_price_after(token_mint, timestamp, db_url=pg_db_url):
         await conn.close()
 
 
-# CHECK W or L TRADE
-# Takes a token mint and a timestamp
-# if the token is in the db
-# check if its most recent time is >= 1 days from timestamp or today
-# note the price at the time closest to the timestamp
-# check if there is a price within 3.5 days after the timestamp that is 3x or more the initial price
-# if there is, return True
-# else return false
-
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
 async def is_win_trade(token_mint, timestamp, pool=None, db_url=pg_db_url):
-    # TODO figure out if this is necessary (prices were updated earlier during fetching)
-    # Alternatively, use refactor token_prices_to_db to add stricter checks before trying to do anything (more I/O)
-    # We could also load price data for each token we need beforehand and use whatever is in_memory instead
 
     three_point_five_days_in_seconds = 3.5 * 24 * 60 * 60
     # Find the closest price at or after the given timestamp
@@ -220,19 +185,11 @@ async def is_win_trade(token_mint, timestamp, pool=None, db_url=pg_db_url):
         AND token_prices.price >= initial_price.price * 2.5
     )
     """
-    if pool:
-        async with pool.acquire() as conn:
-            try:
-                result = await conn.fetchval(query, token_mint, timestamp, three_point_five_days_in_seconds)
-                return bool(result)
-            except Exception as e:
-                print(f'Error occurred in is_win_trade: {e}')
-    else:
-        conn = await asyncpg.connect(db_url)
+
+    async with pool.acquire() as conn:
         try:
             result = await conn.fetchval(query, token_mint, timestamp, three_point_five_days_in_seconds)
             return bool(result)
         except Exception as e:
             print(f'Error occurred in is_win_trade: {e}')
-        finally:
-            await conn.close()
+

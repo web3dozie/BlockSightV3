@@ -197,75 +197,43 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
 async def get_metadata_from_db(token_mint, db_url=pg_db_url, pool=None):
     if pool:
-        async with pool.acquire() as conn:  # Use a connection from the pool
-            try:
-                row = await conn.fetchrow('''
-                    SELECT * FROM metadata
-                    WHERE token_mint = $1
-                ''', token_mint)
-
-                if row:
-                    data = {
-                        'token_mint': row['token_mint'],
-                        'symbol': row['symbol'],
-                        'name': row['name'],
-                        'img_url': row['img_url'],
-                        'starting_mc': row['starting_mc'],
-                        'starting_liq': row['starting_liq'],
-                        'twitter': row['twitter'],
-                        'telegram': row['telegram'],
-                        'other_links': row['other_links'],
-                        'lp_creation_time': row['lp_creation_time'],
-                        'deployer': row['deployer'],
-                        'bundled': row['bundled'],
-                        'airdropped': row['airdropped'],
-                        'supply': row['supply'],
-                        'decimals': row['decimals'],
-                        'lp_address': row['lp_address'],
-                        'initial_lp_supply': row['initial_lp_supply']
-                    }
-                    return data
-                else:
-                    return None
-            finally:
-                await conn.close()  # Ensure the connection is closed
-
+        conn = await pool.acquire()
     else:
-        # Connect to the PostgreSQL database asynchronously
         conn = await asyncpg.connect(dsn=db_url)
-        try:
-            # Join the metadata and security tables to retrieve all necessary data
-            row = await conn.fetchrow('''
-                SELECT * FROM metadata
-                WHERE token_mint = $1
-            ''', token_mint)
 
-            if row:
-                # Construct the dictionary from the row, asyncpg returns a Record which can be accessed similarly to a dict
-                data = {
-                    'token_mint': row['token_mint'],
-                    'symbol': row['symbol'],
-                    'name': row['name'],
-                    'img_url': row['img_url'],
-                    'starting_mc': row['starting_mc'],
-                    'starting_liq': row['starting_liq'],
-                    'twitter': row['twitter'],
-                    'telegram': row['telegram'],
-                    'other_links': row['other_links'],
-                    'lp_creation_time': row['lp_creation_time'],
-                    'deployer': row['deployer'],
-                    'bundled': row['bundled'],
-                    'airdropped': row['airdropped'],
-                    'supply': row['supply'],
-                    'decimals': row['decimals'],
-                    'lp_address': row['lp_address'],
-                    'initial_lp_supply': row['initial_lp_supply']
-                }
-                return data
-            else:
-                return None
-        finally:
-            await conn.close()  # Ensure the connection is closed
+    try:
+        # Join the metadata and security tables to retrieve all necessary data
+        row = await conn.fetchrow('''
+            SELECT * FROM metadata
+            WHERE token_mint = $1
+        ''', token_mint)
+
+        if row:
+            # Construct the dictionary from the row, asyncpg returns a Record which can be accessed similarly to a dict
+            data = {
+                'token_mint': row['token_mint'],
+                'symbol': row['symbol'],
+                'name': row['name'],
+                'img_url': row['img_url'],
+                'starting_mc': row['starting_mc'],
+                'starting_liq': row['starting_liq'],
+                'twitter': row['twitter'],
+                'telegram': row['telegram'],
+                'other_links': row['other_links'],
+                'lp_creation_time': row['lp_creation_time'],
+                'deployer': row['deployer'],
+                'bundled': row['bundled'],
+                'airdropped': row['airdropped'],
+                'supply': row['supply'],
+                'decimals': row['decimals'],
+                'lp_address': row['lp_address'],
+                'initial_lp_supply': row['initial_lp_supply']
+            }
+            return data
+        else:
+            return None
+    finally:
+        await conn.close()  # Ensure the connection is closed
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
