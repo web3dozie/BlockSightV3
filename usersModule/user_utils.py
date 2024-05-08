@@ -554,7 +554,7 @@ async def add_user_to_db(username: str, user_id: int | None, current_plan='FREE'
                         """
                         INSERT INTO users (username, current_plan, plan_end_date, points, credits, user_id, telegram_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
                         ON CONFLICT (username) DO UPDATE
-                    SET telegram_id = EXCLUDED.telegram_id;
+                    SET telegram_id = EXCLUDED.telegram_id WHERE users.telegram_id IS NULL;
                         """,
                         username, current_plan, plan_end_date, 0, 1000, user_id, tg_id
                     )
@@ -584,6 +584,34 @@ async def add_user_to_db(username: str, user_id: int | None, current_plan='FREE'
         finally:
             await conn.close()
 
+async def update_user_avatar(username:str, avatar:str, pool = None, db_path=pg_db_url,):
+    query = "UPDATE users set discord_avatar_hash = $1 WHERE username = $2;"
+
+    if pool:
+        async with pool.acquire() as conn:  # Use a connection from the pool
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                       query,avatar, username)
+            except Exception as e:
+                # Add error handling or logging here
+                print(f"An error {e} occurred while updating avatar of user {username}")
+                raise e
+            finally:
+                await conn.close()
+
+    else:
+        conn = await asyncpg.connect(db_path)
+        try:
+            async with conn.transaction():
+                await conn.execute(query,avatar, username)
+        except Exception as e:
+            # Add error handling or logging here
+            print(f"An error {e} occurred while updating avatar of user {username}")
+            raise e
+        finally:
+            await conn.close()
+
 
 async def get_user_data(username: str, db_path=pg_db_url, pool=None):
     if pool:
@@ -601,6 +629,7 @@ async def get_user_data(username: str, db_path=pg_db_url, pool=None):
                     # Combine user data and referrals count
                     data = dict(user_record)
                     data['referrals'] = referrals_count
+                    data['avatar_link'] = f"https://cdn.discordapp.com/avatars/{data["user_id"]}/{data["discord_avatar_hash"]}.webp"
                     pprint(data)
                     return data
                 else:
@@ -622,6 +651,8 @@ async def get_user_data(username: str, db_path=pg_db_url, pool=None):
                 # Combine user data and referrals count
                 data = dict(user_record)
                 data['referrals'] = referrals_count
+                data['avatar_link'] = f"https://cdn.discordapp.com/avatars/{data["user_id"]}/{data["discord_avatar_hash"]}.webp"
+
                 pprint(data)
                 return data
             else:
