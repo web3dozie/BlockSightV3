@@ -23,14 +23,7 @@ async def main():
 
     # Try to initialize the pool
     try:
-        pool = await asyncpg.create_pool(
-            dsn=pg_db_url,
-            min_size=50,
-            max_size=150,
-            max_inactive_connection_lifetime=1000,
-            timeout=100,
-            statement_cache_size=1000
-        )
+        pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=50, max_size=150, max_inactive_connection_lifetime=1000)
     except Exception as e:
         print(f"Failed to create pool: {e}")
         return
@@ -48,7 +41,7 @@ async def main():
             if retv is not None:
                 remove_wallet_from_csv('./wallet_counts.csv', wallet)
 
-    wallet_list = list(reversed(wallet_list))
+    # wallet_list = list(reversed(wallet_list))
     tasks = [process_wallet_with_semaphore(wallet) for wallet in wallet_list]
 
     try:

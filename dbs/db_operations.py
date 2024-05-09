@@ -133,42 +133,27 @@ async def user_exists(username: str, db_url=pg_db_url, pool=None):
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def mint_exists(token_mint, db_url=pg_db_url, pool=None, table_name='metadata'):
-    if pool:
-        try:
-            async with pool.acquire() as conn:  # Use a connection from the pool
-                if table_name in ['metadata', 'security']:
-                    query = f"SELECT EXISTS(SELECT 1 FROM {table_name} WHERE token_mint = $1 LIMIT 1);"
-                    exists = await conn.fetchval(query, token_mint)
-                else: return False
-
-                return bool(exists)
-        except asyncpg.PostgresError as e:
-            print(f"Database error: {e}")
-        except Exception as e:
-            print(f"Exception in query: {e}")
-    else:
-        try:
-            # Connect to the PostgreSQL database asynchronously
-            conn = await asyncpg.connect(dsn=db_url)
-            try:
-                # Prepare and execute the SQL query asynchronously
-                query = "SELECT EXISTS(SELECT 1 FROM metadata WHERE token_mint = $1 LIMIT 1);"
+async def mint_exists(token_mint, pool=None, table_name='metadata'):
+    try:
+        async with pool.acquire() as conn:  # Use a connection from the pool
+            if table_name in ['metadata', 'security']:
+                query = f"SELECT EXISTS(SELECT 1 FROM {table_name} WHERE token_mint = $1 LIMIT 1);"
                 exists = await conn.fetchval(query, token_mint)
-                return bool(exists)
-            finally:
-                # Ensure the database connection is closed
-                await conn.close()
-        except asyncpg.PostgresError as e:
-            print(f"Database error: {e}")
-        except Exception as e:
-            print(f"Exception in query: {e}")
+            else:
+                print(table_name)
+                return False
+
+            return bool(exists)
+    except asyncpg.PostgresError as e:
+        print(f"Database error: {e}")
+    except Exception as e:
+        print(f"Exception in mint_exists: {e}. Pool is: {type(pool)}. Token is {token_mint}")
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=5)
 async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
     if pool:
-        conn = await pool.acquire()
+        conn = await pool.acquire(timeout=150)
     else:
         conn = await asyncpg.connect(dsn=db_url)
     try:
@@ -187,18 +172,22 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
                            data['initial_lp_supply']
                            )
     except Exception as e:
-        print(f'An error occurred while adding metadata to db: {e}')
+        pprint(f'An error occurred while adding metadata to db: {e}')
+        pprint(f'This is the token in question')
+        pprint(data)
+        print('\n\n')
 
     finally:
         await conn.close()  # Ensure the connection is closed
 
 
-# DONE(update with new schema)
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
 async def get_metadata_from_db(token_mint, db_url=pg_db_url, pool=None):
     if pool:
         conn = await pool.acquire()
     else:
+        print(type(pool))
+        print(f'tried to open brand new conn for {token_mint}')
         conn = await asyncpg.connect(dsn=db_url)
 
     try:
@@ -291,14 +280,6 @@ async def useful_wallets(pool=None):
     return smart_wallets
 
 
-
-
-
-async def get_symbol_with_mint(mint, pool=None):
-    data = await get_metadata_from_db(mint, pool=pool)
-    return data['symbol']
-
-
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
 async def update_ath_after(max_time, db_url=pg_db_url, pool=None):
     # TODO works with central DB
@@ -327,6 +308,4 @@ async def get_tx_list(wallet, pool=None, conn=None):
 
     tx_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
-
     return tx_list
-

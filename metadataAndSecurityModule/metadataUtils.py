@@ -1,5 +1,5 @@
 import json
-import random, re, time, aiohttp, asyncio, ast
+import random, re, time, aiohttp, asyncio
 
 from pprint import pprint
 
@@ -7,7 +7,6 @@ from solana.exceptions import SolanaRpcException
 from solana.rpc.api import Client
 from solana.rpc.commitment import Commitment
 from solana.rpc.core import RPCException
-from solders.pubkey import Pubkey
 from datetime import datetime, timedelta
 from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db
 
@@ -44,7 +43,7 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
 
     if retries >= max_retries:
         print("Failed to fetch data after retries.")
-        return 200
+        return 150
 
 
 async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30, tx_type=''):
@@ -91,8 +90,8 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30,
 
             except Exception as e:
                 retries += 1
-                print(f"Error: {e}, retrying in 0.1 seconds...")
-                await asyncio.sleep(0.1)
+                print(f"Error: {e}, retrying in 0.5 seconds...")
+                await asyncio.sleep(0.5)
 
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
@@ -300,7 +299,7 @@ async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
                 raise e
 
 
-async def get_data_from_helius(token_mint, api_key=helius_api_key, session=None):
+async def get_data_from_helius(token_mint, api_key, session=None):
     url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
     headers = {'Content-Type': 'application/json'}
     payload = {
@@ -313,38 +312,38 @@ async def get_data_from_helius(token_mint, api_key=helius_api_key, session=None)
         },
     }
     max_attempts = 5
+    timeout = aiohttp.ClientTimeout(total=10)  # 10 seconds total timeout
 
     is_new_session = False
     if not session:
-        session = aiohttp.ClientSession()
+        session = aiohttp.ClientSession(timeout=timeout)
         is_new_session = True
 
-    for attempt in range(max_attempts):
-        try:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    result = result.get('result')
+    try:
+        for attempt in range(max_attempts):
+            try:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        result = result.get('result')
+                        return result
+                    else:
+                        print(f"Failed to fetch metadata for {token_mint} (helius). Status code: {response.status}")
+                        continue  # Continue to retry on failure
+            except aiohttp.ClientError as e:
+                print(f"Network error occurred while fetching metadata for {token_mint}: {e}")
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
-                    print(f"Failed to fetch metadata for {token_mint} (helius). Status code:", response.status)
-                    continue  # Continue to retry on failure
-            break  # Successful response
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            if attempt < max_attempts - 1:
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
-            else:
-                print("Maximum retry attempts reached, failing with exception")
-                raise  # Re-raise the last exception if all retries fail
-
-    if is_new_session:
-        await session.close()
-
-    return result
+                    print(f"Maximum retry attempts reached, failing with exception {e}")
+                    raise
+    finally:
+        if is_new_session:
+            await session.close()
 
 
 async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=None):
-    result = await get_data_from_helius(token_mint, api_key) # TODO USE SESSION HERE
+    result = await get_data_from_helius(token_mint, api_key)  # TODO USE SESSION HERE
 
     try:
         symbol = result['content']['metadata']['symbol']
@@ -430,12 +429,14 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
                         'token_mint': token_mint,
                         'symbol': symbol,
                         'name': name,
+                        'initial_lp_supply': None,
                         'img_url': img_url,
                         'starting_mc': None,
                         'starting_liq': None,
                         'twitter': None,
                         'telegram': None,
                         'other_links': None,
+                        'lp_address': lp_address,
                         'lp_creation_time': lp_creation_time,
                         'deployer': deployer,
                         'bundled': None,
@@ -594,7 +595,6 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
                     total_bundled += transfer['tokenAmount']
 
     bundled = round((total_bundled / supply * 100), 2)
-    print(f'Bundled: {bundled}%')
 
     parsed_deploy_tx = await parse_tx_list([deploy_sig])
 
@@ -651,6 +651,8 @@ async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=Non
         'lp_address': lp_address,
         'initial_lp_supply': initial_lp_supply
     }
+
+    pprint(f'Metadata Payload For: {token_mint}\n{payload}\n\n')
     return payload
 
 
@@ -691,6 +693,7 @@ async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=
         # Add metadata to db
         try:
             await add_metadata_to_db(metadata, pool=pool)  # TODO -> I/O that we can optimize
+            pprint(metadata)
             return metadata
         except Exception as metadata_error:
             pprint('METADATA ERROR')
