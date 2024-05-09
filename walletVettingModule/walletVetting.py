@@ -19,11 +19,18 @@ async def main():
     # wallet_processor('./wallet_zips')
 
     wallet_list = read_csv_wallets('./wallet_counts.csv')
-    semaphore = asyncio.Semaphore(9)
+    semaphore = asyncio.Semaphore(16)
 
     # Try to initialize the pool
     try:
-        pool = await asyncpg.create_pool(dsn=pg_db_url)
+        pool = await asyncpg.create_pool(
+            dsn=pg_db_url,
+            min_size=50,
+            max_size=150,
+            max_inactive_connection_lifetime=1000,
+            timeout=100,
+            statement_cache_size=1000
+        )
     except Exception as e:
         print(f"Failed to create pool: {e}")
         return
