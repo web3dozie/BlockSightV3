@@ -2,7 +2,7 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 
 # from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
-from usersModule.user_utils import add_user_to_db, get_user_data
+from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar
 from core import analyse_wallet, fetch_wallet_leaderboard
 import json, aiohttp, jwt
 
@@ -74,7 +74,8 @@ async def handle_web_discord_redirect():
             return {"message": "Success"}
 
     try:
-        await add_user_to_db(username=user_info["username"], user_id=int(user_info["id"]))
+        await add_user_to_db(username=user_info["username"], user_id=int(user_info["id"]), pool=current_app.pool)
+        await update_user_avatar(username=user_info["username"], avatar=user_info["avatar"], pool=current_app.pool)
     except Exception as e:
         print(f"Exception {e} while adding user info to db")
         return "Internal Server Error", 500
@@ -108,6 +109,7 @@ async def web_get_user_info():
     user_name = decoded_token["user_name"] #continue
     try:
         user_data = await get_user_data(username=user_name)
+        print(user_data)
         return user_data
     except Exception as e:
         current_app.logger.error(e)
