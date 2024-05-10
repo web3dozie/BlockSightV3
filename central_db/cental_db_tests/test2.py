@@ -7,7 +7,9 @@ from metadataAndSecurityModule.metadataUtils import get_metadata, get_data_from_
 
 
 async def main():
-    pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=50, max_size=500, max_inactive_connection_lifetime=1000)
+    start = time.time()
+    pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=50, max_size=250, max_inactive_connection_lifetime=200)
+    print(f'This pool took {time.time() - start:.2f} secs to create')
 
     wallets = await useful_wallets(pool)
 
@@ -18,9 +20,17 @@ async def main():
         rows = await conn.fetch(query)
         data = set([row['out_mint'] for row in rows])
 
-    async with asyncio.Semaphore(2):
-        tasks = [asyncio.create_task(get_metadata(mint, pool=pool)) for mint in data]
+    sem = asyncio.Semaphore(5)
+
+    async def run_with_sem(mint):
+        async with sem:
+            await get_metadata(mint, pool=pool, regular_use=False)
+
+    async def run_all():
+        tasks = [run_with_sem(mint) for mint in data]
         await asyncio.gather(*tasks)
+
+    await run_all()
 
 
 asyncio.run(main())

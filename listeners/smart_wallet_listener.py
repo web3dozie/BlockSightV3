@@ -1,4 +1,8 @@
 import asyncio, asyncpg
+import socket
+
+import aiohttp
+from aiohttp import ClientTimeout, TCPConnector
 
 from dbs.db_operations import update_txs_db, useful_wallets
 from metadataAndSecurityModule.metadataUtils import get_wallet_txs, get_metadata
@@ -11,7 +15,9 @@ class SmartWalletListener:
         self.tasks_ready = asyncio.Queue()
         self.currently_running = set()
         self.pool = pool
-        self.simultaneous = 5
+        self.simultaneous = 10
+        self.timeout = ClientTimeout(total=30)
+        self.session = aiohttp.ClientSession(connector=TCPConnector(family=socket.AF_INET), timeout=self.timeout)
 
     async def add_wallet_task(self, wallet):
         # Pass self when adding a task
@@ -48,16 +54,17 @@ class SmartWalletListener:
 
 # Define a task for each wallet
 async def wallet_task(wallet: str, listener):
-    txs = await parse_for_swaps(await get_wallet_txs(wallet, start_days_ago=0))
+    txs = await parse_for_swaps(await get_wallet_txs(wallet, start_days_ago=0, session=listener.session))
 
     async def handle_semaphore(task, sem):
         async with sem:
             return await task
 
-    semaphore = asyncio.Semaphore(3)
+    semaphore = asyncio.Semaphore(10)
     mints = {mint for tx in txs for mint in (tx['in_mint'], tx['out_mint'])}
 
-    tasks = [update_txs_db(txs, pool=listener.pool)] + [get_metadata(mint, pool=listener.pool) for mint in mints]
+    tasks = [update_txs_db(txs, pool=listener.pool)] + [get_metadata(mint, pool=listener.pool, regular_use=False, session=listener.session) for mint in mints]
+
     limited_tasks = [asyncio.create_task(handle_semaphore(task, semaphore)) for task in tasks]
     await asyncio.gather(*limited_tasks)
 

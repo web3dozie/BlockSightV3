@@ -46,7 +46,7 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
         return 150
 
 
-async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30, tx_type=''):
+async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30, tx_type='', session=None):
     base_url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}"
     if tx_type != '':
         base_url += f'&type={tx_type}'
@@ -67,7 +67,8 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30,
         retries = 0
         while retries < max_retries:
             try:
-                async with aiohttp.ClientSession() as session:
+                session = session or aiohttp.ClientSession()
+                async with session:
                     async with session.get(url) as response:
                         if response.status == 200:
                             tx_data_batch = await response.json()
@@ -312,11 +313,10 @@ async def get_data_from_helius(token_mint, api_key, session=None):
         },
     }
     max_attempts = 5
-    timeout = aiohttp.ClientTimeout(total=10)  # 10 seconds total timeout
 
     is_new_session = False
     if not session:
-        session = aiohttp.ClientSession(timeout=timeout)
+        session = aiohttp.ClientSession()
         is_new_session = True
 
     try:
