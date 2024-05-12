@@ -182,7 +182,8 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
         "win_rate_grade": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
         "trades_grade": get_tier(trades_points),
         "size_grade": get_tier(size_points),
-        "pnl_grade": get_tier(pnl_points)
+        "pnl_grade": get_tier(pnl_points),
+        "points": overall_points
     }
 
 
