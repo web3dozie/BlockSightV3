@@ -21,7 +21,7 @@ BETA_PRIME_ROLE = 1192053087586762803
 HONORARY_ROLE = 1184125377124257842
 
 blocksight_api = "http://localhost:5000"
-pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
+pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184/blocksight'
 
 
 async def login(user: discord.User, db_path=pg_db_url):

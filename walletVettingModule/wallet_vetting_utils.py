@@ -7,7 +7,7 @@ from priceDataModule.price_utils import is_win_trade, token_prices_to_db
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
-pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
+pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184/blocksight'
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 
 
@@ -737,32 +737,38 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
 
         start = float(time.time())
         prices_pool = await asyncpg.create_pool(
-                                                dsn=pg_db_url,
-                                                min_size=50,
-                                                max_size=150,
-                                                max_inactive_connection_lifetime=300,
-                                                timeout=100,
-                                                statement_cache_size=1000
-                                            )
-        end = float(time.time())
+            dsn=pg_db_url,
+            min_size=50,
+            max_size=150,
+            max_inactive_connection_lifetime=1000,
+            timeout=100,
+            statement_cache_size=1000
+        )
 
+        end = float(time.time())
         print(
             f"POOL CREATED in {end - start:.2f} secs: There are {len(token_mints_and_timestamps)} tokens to fetch data for")
 
-        sem = asyncio.BoundedSemaphore(100)
+        start = float(time.time())
+        try:
+            sem = asyncio.BoundedSemaphore(125)
 
-        async def limited_task(tmt):
-            async with sem:
-                await token_prices_to_db(tmt[0], tmt[1], int(time.time()), pool=prices_pool)
+            async def limited_task(tmt):
+                async with sem:
+                    await token_prices_to_db(tmt[0], tmt[1], int(time.time()), pool=prices_pool)
 
-        # Fetch token info up front and at once
-        tasks = [limited_task(tmt) for tmt in token_mints_and_timestamps]
+            # Fetch token info up front and at once
+            tasks = [limited_task(tmt) for tmt in token_mints_and_timestamps]
 
-        # Execute tasks concurrently with a limit of 100 tasks at a time
-        await asyncio.gather(*tasks)
+            # Execute tasks concurrently with a limit of 100 tasks at a time
+            await asyncio.gather(*tasks)
 
-        print('PRICES_UPDATED')
-
+            print('PRICES_UPDATED')
+        finally:
+            await prices_pool.close()
+        end = float(time.time())
+        print(
+            f"PRICES UPDATED in {end - start:.2f} secs")
         wins = 0
         size = 0
         weth_price = await get_weth_price()
@@ -790,8 +796,6 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
         # Await all tasks to finish and count wins
         win_results = await asyncio.gather(*tasks)
         wins += sum(win_results)
-
-        await pool.close()
 
         try:
             win_rate = round((wins / trades * 100), 2)
@@ -959,7 +963,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
         latest_timestamp = int(time.time())  # Current timestamp
 
         async with aiohttp.ClientSession() as session:
-            while latest_timestamp >= end_time - secs_ago and zero_trigger and count < 35 and days_of_data_to_fetch > 0:
+            while latest_timestamp >= end_time - secs_ago and zero_trigger and count < 30 and days_of_data_to_fetch > 0:
                 count += 1
                 url = f"{base_url}&before={last_tx_sig}" if last_tx_sig else base_url
                 response = await session.get(url)

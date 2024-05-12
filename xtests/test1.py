@@ -23,7 +23,7 @@ wallets = ['2AnSRuVoRyPBUE1FvgEqdiYi55p42u7LLBB91eGVAviT',
 
 async def main():
     pool = await asyncpg.create_pool(dsn=pg_db_url)
-    wallet = wallets[7]
+    wallet = wallets[8]
 
     start = float(time.time())
     x = await process_wallet(wallet, pool=pool)

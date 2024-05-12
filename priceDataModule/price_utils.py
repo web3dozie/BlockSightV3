@@ -8,7 +8,7 @@ from pprint import pprint
 
 import aiohttp, asyncio, backoff, time, asyncpg, random
 
-pg_db_url = 'postgresql://bmaster:BlockSight%23Master@173.212.244.101/blocksight'
+pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184/blocksight'
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
@@ -66,14 +66,12 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, pool=Non
     if price_data is None:
         return
 
+    items = price_data.get("data", {}).get("items", [])
+
+    records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
+
     try:
-        items = price_data.get("data", {}).get("items", [])
-
-        records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
-
-        conn = await pool.acquire()
-
-        try:
+        async with pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute('''
                     CREATE TEMP TABLE tmp_token_prices AS
@@ -93,18 +91,15 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, pool=Non
                 ''')
 
                 await conn.execute('DROP TABLE tmp_token_prices;')
-        finally:
-            await conn.close()
     except Exception as e:
         print(f"Unexpected error from update_price_data: {e}")
-        # Optionally, re-raise the exception if you want the calling function to handle it
         raise e
 
 
 async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=None):
-    MAX_TIMESTAMP = int(time.time()) - (3 * 60 * 60)
+    MAX_TIMESTAMP = int(time.time()) - (12 * 60 * 60)
 
-    async def wrapper(pool):
+    async def wrapper():
         async with pool.acquire() as conn:
             result = await conn.fetchrow(
                 "SELECT MIN(timestamp) AS min_timestamp, MAX(timestamp) AS max_timestamp "
@@ -116,15 +111,15 @@ async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=No
             if not min_timestamp:
                 # token is brand new --> get prices from start_timestamp to end_timestamp
                 await update_price_data(token_mint, start_timestamp, end_timestamp, pool=pool)
+                print(f'Updated price data for {token_mint}')
             else:
                 if max_timestamp >= MAX_TIMESTAMP: return
 
                 await update_price_data(token_mint, max_timestamp, end_timestamp, pool=pool)
 
-                print(f'Updated price data for {token_mint}')
 
     try:
-        await wrapper(pool)
+        await wrapper()
     except Exception as e:
         print(f"Error From token_prices_to_db: {e}")
 
