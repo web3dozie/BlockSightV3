@@ -1023,7 +1023,7 @@ async def fetch_wallet_leaderboard(pool, window='30d'):
 
     query = ("SELECT * FROM wallets WHERE trades >= 5 AND window_value = $1 AND avg_size >= 10 "
              "ORDER BY win_rate")
-    window_int = int(window[:-2])
+    window_int = int(window[:-1])
 
     rows = await conn.fetch(query, window)
 

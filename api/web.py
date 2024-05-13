@@ -125,4 +125,9 @@ async def web_analyse_wallet(wallet_address):
 @web_blueprint.route("/get-wallets-leaderboard")
 @token_required
 async def web_wallets_leaderboard():
-    return await fetch_wallet_leaderboard(current_app.pool)
+    retv = dict()
+    retv["30d"] = await fetch_wallet_leaderboard(current_app.pool, '30d')
+    retv["7d"] = await fetch_wallet_leaderboard(current_app.pool, '7d')
+    retv["3d"] = await fetch_wallet_leaderboard(current_app.pool, '3d')
+
+    return retv
