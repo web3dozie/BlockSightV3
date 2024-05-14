@@ -55,8 +55,8 @@ async def verify_token_mint(token_mint):
             return {"result": "valid"}
         else:
             return {"result": "invalid"}
-    except Exception:
-        return "Internal Server Error", 500
+    except Exception as e:
+        return f"Internal Server Error: {e}", 500
 
 
 @core_blueprint.route("/is-win-trade")
@@ -105,9 +105,9 @@ async def handle_discord_redirect():
     try:
         with open('config.json', 'r') as file:
             config = json.load(file)
-    except:
+    except Exception as e:
         print("config.json required")
-        return "Server Error", 500
+        return f"Server Error: {e}", 500
 
     code = request.args.get("code")
     tg_id = request.args.get("state")

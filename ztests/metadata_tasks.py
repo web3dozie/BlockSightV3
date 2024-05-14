@@ -3,9 +3,9 @@ import random
 
 import aiohttp
 import asyncpg
-from metadataAndSecurityModule.metadataUtils import get_metadata
 
-pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184/blocksight'
+from dbs.db_operations import pg_db_url
+from metadataAndSecurityModule.metadataUtils import get_metadata
 
 
 async def fetch_mints(db_url):

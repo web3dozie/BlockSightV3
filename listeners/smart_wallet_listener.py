@@ -1,23 +1,22 @@
-import asyncio, asyncpg
-import socket
+import asyncio, socket, aiohttp
 
-import aiohttp
+import asyncpg
 from aiohttp import ClientTimeout, TCPConnector
-
-from dbs.db_operations import update_txs_db, useful_wallets
+from dbs.db_operations import update_txs_db, useful_wallets, pg_db_url
 from metadataAndSecurityModule.metadataUtils import get_wallet_txs, get_metadata
 from walletVettingModule.wallet_vetting_utils import parse_for_swaps
 
 
 class SmartWalletListener:
-    def __init__(self, pool: asyncpg.Pool, wait_time=200):
+    def __init__(self, pool, wait_time=200):
         self.wait_time = wait_time
         self.tasks_ready = asyncio.Queue()
         self.currently_running = set()
+        self.concurrent_wallets = 1
+        self.concurrent_tokens_per_wallet = 1
+        self.timeout = ClientTimeout(total=120)
+        self.session = aiohttp.ClientSession(timeout=self.timeout)
         self.pool = pool
-        self.simultaneous = 10
-        self.timeout = ClientTimeout(total=30)
-        self.session = aiohttp.ClientSession(connector=TCPConnector(family=socket.AF_INET), timeout=self.timeout)
 
     async def add_wallet_task(self, wallet):
         # Pass self when adding a task
@@ -25,12 +24,12 @@ class SmartWalletListener:
 
     async def start_scheduler(self):
         while True:
-            if len(self.currently_running) < self.simultaneous:
+            if len(self.currently_running) < self.concurrent_wallets:
                 await self.process_ready_tasks()
             await asyncio.sleep(1)  # Small delay to prevent a tight loop
 
     async def process_ready_tasks(self):
-        while not self.tasks_ready.empty() and len(self.currently_running) < self.simultaneous:
+        while not self.tasks_ready.empty() and len(self.currently_running) < self.concurrent_wallets:
             wallet, task_func = await self.tasks_ready.get()
             task = asyncio.create_task(self.run_wallet_task(wallet, task_func))
             self.currently_running.add(task)
@@ -60,10 +59,10 @@ async def wallet_task(wallet: str, listener):
         async with sem:
             return await task
 
-    semaphore = asyncio.Semaphore(10)
+    semaphore = asyncio.Semaphore(listener.concurrent_tokens_per_wallet)
     mints = {mint for tx in txs for mint in (tx['in_mint'], tx['out_mint'])}
 
-    tasks = [update_txs_db(txs, pool=listener.pool)] + [get_metadata(mint, pool=listener.pool, regular_use=False, session=listener.session) for mint in mints]
+    tasks = [update_txs_db(txs, pool=listener.pool)] + [get_metadata(mint, regular_use=False, session=listener.session, pool=listener.pool) for mint in mints]
 
     limited_tasks = [asyncio.create_task(handle_semaphore(task, semaphore)) for task in tasks]
     await asyncio.gather(*limited_tasks)
@@ -71,15 +70,18 @@ async def wallet_task(wallet: str, listener):
     return wallet, wallet_task
 
 
-async def maintain_txs(pool: asyncpg.Pool):
+async def maintain_txs():
     """
     This function creates a scheduler and makes sure each
     wallet's txs gets fetched exactly once every n minutes.
 
     It is designed to run forever
     """
-    wallet_list = await useful_wallets(pool=pool)
+    pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=100, max_size=500)
     listener = SmartWalletListener(pool)
+
+    wallet_list = await useful_wallets(listener.pool())
+
     for wallet in wallet_list:
         await listener.add_wallet_task(wallet)
     await listener.start_scheduler()

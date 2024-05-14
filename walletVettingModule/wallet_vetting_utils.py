@@ -7,7 +7,7 @@ from priceDataModule.price_utils import is_win_trade, token_prices_to_db
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
-pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184/blocksight'
+pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184:6432/blocksight'
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 
 
@@ -559,7 +559,7 @@ async def get_weth_price(token_mint: str = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4
 
 
 # DONE -> Fix insertions
-async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
+async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url, pool=None) -> None:
     """
     Insert or update wallet data into the database.
 
@@ -570,8 +570,8 @@ async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
     Returns:
         None
     """
-    # Connect to the PostgreSQL database asynchronously
-    conn = await asyncpg.connect(dsn=db_url)
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
     try:
         # Prepare the INSERT INTO statement with PostgreSQL syntax
         query = """
@@ -591,7 +591,10 @@ async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url) -> None:
         # Execute the query
         await conn.execute(query, *values)
     finally:
-        await conn.close()  # Ensure the connection is closed
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
 
 async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, window: int = 30, pool=None) -> bool:
@@ -611,45 +614,29 @@ async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, windo
     one_day_ago = int(time.time()) - (24 * 60 * 60)
     window = f"{window}d"
 
-    if pool:
-        async with pool.acquire() as conn:
-            try:
-                # Prepare the SELECT statement to find the last_checked value for the given wallet
-                query = """
-                SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
-                """
-                # Execute the query
-                result = await conn.fetchval(query, wallet_address, window)
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
-                # Check if the wallet was found and if its last_checked is older than one day ago
-                if not result:
-                    return True
-                elif result < one_day_ago:
-                    return True
-                else:
-                    return False
-            finally:
-                await conn.close()  # Ensure the connection is closed
-    else:
-        # Connect to the PostgreSQL database asynchronously
-        conn = await asyncpg.connect(dsn=db_url)
-        try:
-            # Prepare the SELECT statement to find the last_checked value for the given wallet
-            query = """
-            SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
-            """
-            # Execute the query
-            result = await conn.fetchval(query, wallet_address, window)
+    try:
+        # Prepare the SELECT statement to find the last_checked value for the given wallet
+        query = """
+        SELECT last_checked FROM wallets WHERE wallet = $1 and window_value = $2;
+        """
+        # Execute the query
+        result = await conn.fetchval(query, wallet_address, window)
 
-            # Check if the wallet was found and if its last_checked is older than one day ago
-            if not result:
-                return True
-            elif result < one_day_ago:
-                return True
-            else:
-                return False
-        finally:
-            await conn.close()  # Ensure the connection is closed
+        # Check if the wallet was found and if its last_checked is older than one day ago
+        if not result:
+            return True
+        elif result < one_day_ago:
+            return True
+        else:
+            return False
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
 
 async def get_wallet_data(wallet_address: str, pool) -> dict:
@@ -684,7 +671,7 @@ async def get_wallet_data(wallet_address: str, pool) -> dict:
         else:
             return {}  # Return an empty dict if no wallet is found
     finally:
-        await conn.close()  # Ensure the connection is closed
+        await pool.release(conn)  # Ensure the connection is closed
 
 
 async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> dict:
@@ -699,9 +686,10 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
     Returns:
         dict: A dictionary containing the processed wallet summary.
     """
+
     if await is_wallet_outdated(wallet_address, window=window, pool=pool):
         # Get last 30 days of SPL Buy TXs
-        print(f'FETCHING TXS for {wallet_address}')
+        # print('fetching TXS for {wallet_address}')
         try:
             start = float(time.time())
             thirty_day_swaps = await get_wallet_txs(wallet_address, window=window, pool=pool)
@@ -709,14 +697,14 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
             print(f'This wallet\'s swaps took: {end - start:.2f} secs to fetch')
         except Exception as e:
             raise e
-        print('FETCHED TXS')
+        # print('FETCHED TXS')
         sol_price = await get_sol_price()
 
         pnl = round(await calculate_pnl(thirty_day_swaps, sol_price), 2)
 
         thirty_day_buys = filter_for_buys(thirty_day_swaps)
 
-        print(f'BUYS FILTERED')
+        # print(f'BUYS FILTERED')
 
         thirty_day_buys = deduplicate_transactions(thirty_day_buys)
 
@@ -735,23 +723,21 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
 
         token_mints_and_timestamps = trim_list(token_mints_and_timestamps)
 
-        start = float(time.time())
+        start = time.time()
         prices_pool = await asyncpg.create_pool(
             dsn=pg_db_url,
-            min_size=50,
-            max_size=150,
+            min_size=35,
+            max_size=100,
             max_inactive_connection_lifetime=1000,
             timeout=100,
             statement_cache_size=1000
         )
 
-        end = float(time.time())
-        print(
-            f"POOL CREATED in {end - start:.2f} secs: There are {len(token_mints_and_timestamps)} tokens to fetch data for")
+        # print(f"POOL CREATED in {time.time() - start:.2f} secs: There are {len(token_mints_and_timestamps)} tokens to fetch data for")
 
         start = float(time.time())
         try:
-            sem = asyncio.BoundedSemaphore(125)
+            sem = asyncio.BoundedSemaphore(85)
 
             async def limited_task(tmt):
                 async with sem:
@@ -763,7 +749,7 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
             # Execute tasks concurrently with a limit of 100 tasks at a time
             await asyncio.gather(*tasks)
 
-            print('PRICES_UPDATED')
+            # print('PRICES_UPDATED')
         finally:
             await prices_pool.close()
         end = float(time.time())
@@ -944,7 +930,7 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
                          window=30, pool=None):
     end_time = end_time or int(time.time())
 
-    # Use provided connection pool or establish a new connection
+    new_conn = not bool(pool)
     conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
     try:
         last_db_tx_timestamp = await conn.fetchval("SELECT MAX(timestamp) FROM txs WHERE wallet = $1", wallet)
@@ -992,7 +978,10 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, tx_type='', end_ti
         rows = await conn.fetch(query, wallet, end_time - (window * 24 * 60 * 60), end_time)
 
     finally:
-        await conn.close()
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
     return [dict(row) for row in rows]
 
@@ -1039,6 +1028,8 @@ async def fetch_wallet_leaderboard(pool, window='30d'):
         wallet.update(determine_wallet_grade(wallet['trades'], wallet['win_rate'],
                                              wallet['avg_size'], wallet['pnl'], window=window_int))
         graded_list.append(wallet)
+
+    await pool.release(conn)
 
     return graded_list
 

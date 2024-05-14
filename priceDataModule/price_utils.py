@@ -8,7 +8,7 @@ from pprint import pprint
 
 import aiohttp, asyncio, backoff, time, asyncpg, random
 
-pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184/blocksight'
+pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184:6432/blocksight'
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
@@ -70,27 +70,16 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, pool=Non
 
     records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
 
+    # print(f'There are {len(records_to_insert)} rows of price data to insert')
+
     try:
         async with pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute('''
-                    CREATE TEMP TABLE tmp_token_prices AS
-                    SELECT * FROM token_prices WITH NO DATA;
-                ''')
-
-                await conn.copy_records_to_table(
-                    'tmp_token_prices',
+            await conn.copy_records_to_table(
+                    'buffer_token_prices',
                     columns=['token_mint', 'price', 'timestamp'],
                     records=records_to_insert
                 )
 
-                await conn.execute('''
-                    INSERT INTO token_prices (token_mint, price, timestamp)
-                    SELECT token_mint, price, timestamp FROM tmp_token_prices
-                    ON CONFLICT (token_mint, timestamp) DO NOTHING;
-                ''')
-
-                await conn.execute('DROP TABLE tmp_token_prices;')
     except Exception as e:
         print(f"Unexpected error from update_price_data: {e}")
         raise e
@@ -114,8 +103,8 @@ async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=No
                 print(f'Updated price data for {token_mint}')
             else:
                 if max_timestamp >= MAX_TIMESTAMP: return
-
                 await update_price_data(token_mint, max_timestamp, end_timestamp, pool=pool)
+                print(f'Updated price data for {token_mint}')
 
 
     try:
@@ -124,11 +113,10 @@ async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=No
         print(f"Error From token_prices_to_db: {e}")
 
 
+async def max_timestamp(token_mint, db_url=pg_db_url, pool=None):
 
-
-async def max_timestamp(token_mint, db_url=pg_db_url):
-    # Connect to the PostgreSQL database using asyncpg
-    conn = await asyncpg.connect(dsn=db_url)
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
     try:
         # Execute the query to find the maximum timestamp for the given token_mint
         query = "SELECT MAX(timestamp) FROM token_prices WHERE token_mint = $1"
@@ -141,8 +129,10 @@ async def max_timestamp(token_mint, db_url=pg_db_url):
             # Return default value if no data is found
             return 0
     finally:
-        # Ensure the connection is closed after operation
-        await conn.close()
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
 
 async def max_price_after(token_mint, timestamp, db_url=pg_db_url):

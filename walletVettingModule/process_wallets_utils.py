@@ -97,6 +97,7 @@ def count_wallet_addresses(folder_path):
 
     # Sort by count in descending order
     sorted_wallets = sorted(wallet_counts.items(), key=lambda x: x[1], reverse=True)
+    sorted_wallets = [wallet for wallet in sorted_wallets if wallet[1] >= 2]
 
     # Write to CSV file
     with open('wallet_counts.csv', 'w', newline='') as csvfile:

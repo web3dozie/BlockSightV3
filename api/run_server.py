@@ -15,7 +15,7 @@ app.register_blueprint(core_blueprint, url_prefix='/core')
 
 @app.before_serving
 async def create_pool():
-    app.pool = await asyncpg.create_pool(dsn=pg_db_url)
+    app.pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=300, max_size=800, max_inactive_connection_lifetime=1000, command_timeout=500)
 
 
 @app.after_request

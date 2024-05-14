@@ -1,14 +1,14 @@
-import json
-import random, re, time, aiohttp, asyncio
+import random, re, time, aiohttp, asyncio, json
 
 from pprint import pprint
 
+import asyncpg
 from solana.exceptions import SolanaRpcException
-from solana.rpc.api import Client
+from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment
 from solana.rpc.core import RPCException
 from datetime import datetime, timedelta
-from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db
+from dbs.db_operations import mint_exists, add_metadata_to_db, get_metadata_from_db, pg_db_url
 
 helius_api_key = 'cfc89cfc-2749-487b-9a76-58b989e70909'
 rpc_url = f'https://mainnet.helius-rpc.com/?api-key={helius_api_key}'
@@ -65,34 +65,37 @@ async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30,
             url += f'&before={last_tx_sig}'
 
         retries = 0
+        new_session = not bool(session)
+        session = session or aiohttp.ClientSession()
         while retries < max_retries:
             try:
-                session = session or aiohttp.ClientSession()
-                async with session:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            tx_data_batch = await response.json()
-                            # print(f'There are {len(tx_data_batch)} txs in this "batch")
-                            if not tx_data_batch:  # Empty response, exit loop
-                                zero_trigger = False
-                                break
+                response = await session.get(url)
+                if response.status == 200:
+                    tx_data_batch = await response.json()
+                    # print(f'There are {len(tx_data_batch)} txs in this "batch")
+                    if not tx_data_batch:  # Empty response, exit loop
+                        zero_trigger = False
+                        break
 
-                            for tx in tx_data_batch:
-                                tx_data.append(tx)
+                    for tx in tx_data_batch:
+                        tx_data.append(tx)
 
-                            last_tx = tx_data_batch[-1]
-                            last_tx_sig = last_tx['signature']
-                            # print(f'With this sig: {last_tx_sig}\n')
-                            last_tx_timestamp = last_tx['timestamp']
-                            break  # Break from retry loop on success
-
-                        else:
-                            raise Exception(f"Failed to fetch tx data for {wallet}, status code: {response.status}")
+                    last_tx = tx_data_batch[-1]
+                    last_tx_sig = last_tx['signature']
+                    # print(f'With this sig: {last_tx_sig}\n')
+                    last_tx_timestamp = last_tx['timestamp']
+                    break  # Break from retry loop on success
+                else:
+                    raise Exception(f"Failed to fetch tx data for {wallet}, status code: {response.status}")
 
             except Exception as e:
                 retries += 1
                 print(f"Error: {e}, retrying in 0.5 seconds...")
                 await asyncio.sleep(0.5)
+
+            finally:
+                if new_session:
+                    await session.close()
 
             if retries >= max_retries:
                 print("Failed to fetch data after retries.")
@@ -169,16 +172,17 @@ async def get_dxs_data(mint_token):
         }
 
 
-async def get_current_slot_timestamp():
+async def get_current_slot_timestamp(client=None):
     # Returns the current slot's number and timestamp
 
-    cluster_url = rpc_url
-    client = Client(cluster_url)
+    client = client or AsyncClient(rpc_url)
     try:
-        slot_number = client.get_block_height(commitment=Commitment('confirmed')).value
+        slot_number = await client.get_block_height(commitment=Commitment('confirmed'))
+        slot_number = slot_number.value
     except:
         await asyncio.sleep(0.1)
-        slot_number = client.get_block_height().value
+        slot_number = await client.get_block_height()
+        slot_number = slot_number.value
 
     slot_timestamp = int(time.time())
     slot_number += 19632867
@@ -186,9 +190,8 @@ async def get_current_slot_timestamp():
     return slot_number, slot_timestamp
 
 
-async def get_target_slot_timestamp(slot_number):
-    cluster_url = rpc_url
-    client = Client(cluster_url)
+async def get_target_slot_timestamp(slot_number, client=None):
+    client = client or AsyncClient(rpc_url)
     initial_range = [0]  # Starting with the current slot
 
     extended_ranges = [[1, -1], [2, -2], [3, -3], [4, -4], [5, -5], [6, -6], [7, -7], [8, -8], [9, -9], [10, -10],
@@ -203,9 +206,9 @@ async def get_target_slot_timestamp(slot_number):
             try:
                 for delta in delta_range:
                     try:
-                        slot_timestamp = client.get_block_time(slot_number + delta).value
+                        slot_timestamp = await client.get_block_time(slot_number + delta)
                         if slot_timestamp is not None:
-                            return slot_timestamp  # Return on the first successful fetch
+                            return slot_timestamp.value  # Return on the first successful fetch
                     except RPCException:
                         await asyncio.sleep(0.2)  # Wait before trying the next delta
                         continue  # Proceed to try with the next delta in the range
@@ -221,9 +224,11 @@ async def get_target_slot_timestamp(slot_number):
     raise ValueError(f"No valid timestamp found near slot number {slot_number}")
 
 
-async def deep_deploy_tx_search(target_timestamp):
+async def deep_deploy_tx_search(target_timestamp, client=None):
+    client = client or AsyncClient(rpc_url)
+
     # Start by getting the current slot number and timestamp
-    current_slot_number, current_timestamp = await get_current_slot_timestamp()
+    current_slot_number, current_timestamp = await get_current_slot_timestamp(client=client)
 
     # If the current timestamp is less than the target, the slot doesn't exist yet
     if current_timestamp < target_timestamp:
@@ -257,6 +262,39 @@ async def deep_deploy_tx_search(target_timestamp):
         return None
 
 
+async def parse_large_tx_list(large_list_of_sigs, chunk_size=100, sess=None):
+    sess = sess or aiohttp.ClientSession()
+
+    # Calculate the number of chunks needed
+    num_chunks = (len(large_list_of_sigs) + chunk_size - 1) // chunk_size
+
+    async def parse_chunk(chunk):
+        max_attempt = 5
+        for attempt in range(max_attempt):
+            try:
+                # Parse the current chunk
+                return await parse_tx_list(chunk, session=sess)
+            except Exception as e:
+                if attempt < max_attempt - 1:
+                    await asyncio.sleep(0.25 * 2 ** attempt)  # Exponential backoff
+                else:
+                    # Log the exception or handle it as needed
+                    print(f"Failed to parse chunk after {max_attempt} attempts: {e}")
+                    return []  # Return an empty list on failure
+
+    # Create tasks for each chunk
+    tasks = [parse_chunk(large_list_of_sigs[i * chunk_size:(i + 1) * chunk_size]) for i in
+             range(num_chunks)]
+
+    # Use asyncio.gather to run tasks concurrently
+    parsed_chunks = await asyncio.gather(*tasks)
+
+    # Flatten the list of parsed transactions
+    all_parsed_txs = [tx for sublist in parsed_chunks for tx in sublist]
+
+    return all_parsed_txs
+
+
 async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
     if tx_list == ['']:
         return []
@@ -264,43 +302,32 @@ async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
     url = f"https://api.helius.xyz/v0/transactions/?api-key={api_key}"
     # Parameters for retry logic
     max_attempts = 5
-    attempt = 0
 
-    while attempt < max_attempts:
-        try:
-            if session is None:
+    new_session = not bool(session)
+    session = session or aiohttp.ClientSession()
 
-                max_attempts = 5  # Set the maximum number of retry attempts
-
-                for attempt in range(max_attempts):
-                    try:
-                        async with aiohttp.ClientSession() as session:
-                            async with session.post(url, json={"transactions": tx_list}) as response:
-                                data = await response.json()
-                        break  # Exit the loop if the function succeeds
-                    except Exception as e:
-                        if attempt < max_attempts - 1:
-                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                        else:
-                            raise  # Re-raise the last exception if all retries fail
-
-                return data
-            else:
+    try:
+        for attempt in range(max_attempts):
+            try:
                 response = await session.post(url, json={"transactions": tx_list})
-                data = await response.json()
-                return data
+                if response.status == 200:
+                    data = await response.json()
+                    return data
+                else:
+                    continue
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                else:
+                    print(f'Unable to fetch tx_list even after retries: {e}')
+                    raise e  # Re-raise the last exception if all retries fail
 
-        except aiohttp.client_exceptions.ServerDisconnectedError as e:
-            print(f"Server disconnected. Retrying... ({attempt + 1}/{max_attempts})")
-            attempt += 1
-            if attempt < max_attempts:
-                # Wait a bit before retrying to give the server some time (adjust as needed)
-                await asyncio.sleep(0.5)
-            else:
-                raise e
+    finally:
+        if new_session:
+            await session.close()
 
 
-async def get_data_from_helius(token_mint, api_key, session=None):
+async def get_data_from_helius(token_mint, api_key=helius_api_key, session=None):
     url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
     headers = {'Content-Type': 'application/json'}
     payload = {
@@ -314,22 +341,20 @@ async def get_data_from_helius(token_mint, api_key, session=None):
     }
     max_attempts = 5
 
-    is_new_session = False
-    if not session:
-        session = aiohttp.ClientSession()
-        is_new_session = True
+    new_session = not bool(session)
+    session = session or aiohttp.ClientSession()
 
     try:
         for attempt in range(max_attempts):
             try:
-                async with session.post(url, headers=headers, json=payload) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        result = result.get('result')
-                        return result
-                    else:
-                        print(f"Failed to fetch metadata for {token_mint} (helius). Status code: {response.status}")
-                        continue  # Continue to retry on failure
+                response = await session.post(url, headers=headers, json=payload)
+                if response.status == 200:
+                    result = await response.json()
+                    result = result.get('result')
+                    return result
+                else:
+                    print(f"Failed to fetch metadata for {token_mint} (helius). Status code: {response.status}")
+                    continue  # Continue to retry on failure
             except aiohttp.ClientError as e:
                 print(f"Network error occurred while fetching metadata for {token_mint}: {e}")
                 if attempt < max_attempts - 1:
@@ -338,336 +363,121 @@ async def get_data_from_helius(token_mint, api_key, session=None):
                     print(f"Maximum retry attempts reached, failing with exception {e}")
                     raise
     finally:
-        if is_new_session:
+        if new_session:
             await session.close()
 
 
-async def retrieve_metadata(token_mint: str, api_key=helius_api_key, session=None):
-    result = await get_data_from_helius(token_mint, api_key)  # TODO USE SESSION HERE
+async def retrieve_metadata(token_mint: str, session=None, client=None):
+    new_session = not bool(session)
+    session = session or aiohttp.ClientSession()
 
     try:
-        symbol = result['content']['metadata']['symbol']
-    except KeyError:
-        print(f'Mint has an error could not retrieve metadata: {token_mint}')
-        return
+        result = await get_data_from_helius(token_mint, session=session)
 
-    name = result['content']['metadata']['name']
-
-    # check two places and fall back on a default img_url
-    img_url = (result['content']['links'].get('image') or result['content']['files'].get('uri') or
-               'https://cdn-icons-png.flaticon.com/512/2748/2748558.png')
-
-    # for socials check description for 3 or more links (if it isn't there pass to other function)
-    try:
-        description = result['content']['metadata']['description']
-    except KeyError:
-        description = ''
-
-    socials = extract_links(description)
-
-    # if any key in the dict is empty --> use the json metadata
-    if any(value is None for value in socials.values()):
-        socials = get_socials(result['content']['json_uri'])
-
-    twitter, telegram, other_links = socials['twitter'], socials['telegram'], socials['others']
-
-    decimals = result['token_info']['decimals']
-    supply = round(((result['token_info']['supply']) / (10 ** decimals)), 2)
-
-    deployer = result['authorities'][0]['address']
-
-    max_retries = 1
-    attempts = 0
-    deploy_sig = None
-    lp_creation_time = None
-
-    while attempts < max_retries:
         try:
-            if deployer in ['TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM']:
-                raise Exception(f'Pump Fun Token: Going Deep')
+            symbol = result['content']['metadata']['symbol']
+        except KeyError:
+            print(f'Mint has an error could not retrieve metadata: {token_mint}')
+            return
 
-            deploy_tx = await get_wallet_txs(deployer, start_days_ago=1000, tx_type="CREATE_POOL")
+        name = result['content']['metadata']['name']
 
-            relevant_deploy = []
+        img_url = result['content']['links'].get('image') or result['content']['files'].get(
+            'uri') or 'https://cdn-icons-png.flaticon.com/512/2748/2748558.png'
+        description = result['content']['metadata'].get('description', '')
 
-            for tx in deploy_tx:
-                if token_mint in str(tx):
-                    relevant_deploy.append(tx)
+        socials = extract_links(description)
+        if any(value is None for value in socials.values()):
+            socials = await get_socials(result['content']['json_uri'])
 
-            deploy_tx = relevant_deploy
+        twitter, telegram, other_links = socials['twitter'], socials['telegram'], socials['others']
 
-            if deploy_tx:
-                deploy_sig = deploy_tx[0]['signature']
+        decimals = result['token_info']['decimals']
+        supply = round(result['token_info']['supply'] / (10 ** decimals), 2)
 
-            if not deploy_tx:
-                raise Exception(f'No deploy tx found')
+        deployer = result['authorities'][0]['address']
 
-            break
+        max_retries = 1
+        attempts = 0
+        deploy_sig = None
+        lp_creation_time = None
 
-        except Exception as e:  # Catch the specific exception if possible, instead of using a bare except
-            attempts += 1
-            if attempts < max_retries:
-                await asyncio.sleep(1)  # Wait for 1 second before retrying
-            else:
-                print(f'\n\nStarting Deep Search for {token_mint}')
+        while attempts < max_retries:
+            try:
+                if deployer in ['TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM']:
+                    raise Exception('Pump Fun Token: Going Deep')
 
-                # After max retries, handle with the except logic
+                deploy_tx = await get_wallet_txs(deployer, start_days_ago=1000, tx_type="CREATE_POOL", session=session)
+                relevant_deploy = [tx for tx in deploy_tx if token_mint in str(tx)]
+                deploy_tx = relevant_deploy
 
-                dxs_data = await get_dxs_data(token_mint)
+                if deploy_tx:
+                    deploy_sig = deploy_tx[0]['signature']
+                if not deploy_tx:
+                    raise Exception('No deploy tx found')
 
-                lp_creation_time = dxs_data['lp_creation_time']
-                lp_address = dxs_data['pool_address']
+                break
 
-                try:
-                    deploy_slot = await deep_deploy_tx_search(lp_creation_time - 1)
+            except Exception:
+                attempts += 1
+                if attempts < max_retries:
+                    await asyncio.sleep(1)
+                else:
+                    client = client or AsyncClient(rpc_url)
+                    dxs_data = await get_dxs_data(token_mint)
 
-                    if deploy_slot is None:
-                        raise TypeError
-
-                except TypeError:
-                    return {
-                        'token_mint': token_mint,
-                        'symbol': symbol,
-                        'name': name,
-                        'initial_lp_supply': None,
-                        'img_url': img_url,
-                        'starting_mc': None,
-                        'starting_liq': None,
-                        'twitter': None,
-                        'telegram': None,
-                        'other_links': None,
-                        'lp_address': lp_address,
-                        'lp_creation_time': lp_creation_time,
-                        'deployer': deployer,
-                        'bundled': None,
-                        'airdropped': None,
-                        'supply': supply,
-                        'decimals': decimals
-                    }
-
-                slot_txs_plus_10 = []
-                for tries in range(0, 10):
-                    cluster_url = rpc_url
-                    client = Client(cluster_url)
-
-                    if deploy_slot is None:
-                        return
-
-                    trying_with = deploy_slot + tries
+                    lp_creation_time = dxs_data['lp_creation_time']
+                    lp_address = dxs_data['pool_address']
 
                     try:
-                        block_txs = client.get_block(trying_with, max_supported_transaction_version=0).to_json()
-                    except RPCException:
-                        continue
-                    except SolanaRpcException:
-                        continue
+                        deploy_slot = await deep_deploy_tx_search((lp_creation_time - 1), client=client)
+                        if deploy_slot is None:
+                            raise TypeError
+                    except TypeError:
+                        return {
+                            'token_mint': token_mint,
+                            'symbol': symbol,
+                            'name': name,
+                            'initial_lp_supply': None,
+                            'img_url': img_url,
+                            'starting_mc': None,
+                            'starting_liq': None,
+                            'twitter': None,
+                            'telegram': None,
+                            'other_links': None,
+                            'lp_address': lp_address,
+                            'lp_creation_time': lp_creation_time,
+                            'deployer': deployer,
+                            'bundled': None,
+                            'airdropped': None,
+                            'supply': supply,
+                            'decimals': decimals
+                        }
 
-                    block_txs = json.loads(block_txs)['result']['transactions']
-                    slot_txs_plus_10.extend(block_txs)
+                    slot_txs_plus_10 = []
+                    for tries in range(10):
+                        if deploy_slot is None:
+                            return
 
-                deploy_sigs = []
-                for tx in slot_txs_plus_10:
-                    if lp_address in str(tx).lower():
-                        deploy_sigs.append(tx['transaction']['signatures'][0])
+                        try:
+                            block_txs = await client.get_block(deploy_slot + tries, max_supported_transaction_version=0)
+                            block_txs = json.loads(block_txs.to_json())['result']['transactions']
+                            slot_txs_plus_10.extend(block_txs)
+                        except (RPCException, SolanaRpcException):
+                            continue
 
-                async def parse_large_tx_list(large_list_of_sigs, chunk_size=100):
-                    # Initialize an empty list to hold all parsed transactions
-                    all_parsed_txs = []
+                    deploy_sigs = [tx['transaction']['signatures'][0] for tx in slot_txs_plus_10 if
+                                   lp_address in str(tx).lower()]
 
-                    # Calculate the number of chunks needed
-                    num_chunks = len(large_list_of_sigs) // chunk_size + (
-                        1 if len(large_list_of_sigs) % chunk_size > 0 else 0)
+                    relevant_early_txs = await parse_large_tx_list(deploy_sigs, sess=session)
+                    relevant_early_txs_confirmed = [tx for tx in relevant_early_txs if
+                                                    "'transactionError': None" in str(tx) and "CREATE_POOL" in str(tx)]
 
-                    for i in range(num_chunks):
-                        # Calculate start and end indices for each chunk
-                        start_index = i * chunk_size
-                        end_index = start_index + chunk_size
+                    deploy_sig = relevant_early_txs_confirmed[0]['signature'] if relevant_early_txs_confirmed else ''
 
-                        # Slice the deploy_sigs list to get a chunk of at most 100 elements
-                        chunk = large_list_of_sigs[start_index:end_index]
-
-                        max_attempt = 5  # Set the maximum number of retry attempts
-
-                        parsed_txs = []
-                        for att in range(max_attempt):
-                            try:
-                                # Parse the current chunk
-                                parsed_txs = await parse_tx_list(chunk)
-                                break  # Exit the loop if the function succeeds
-                            except Exception as e:
-                                if att < max_attempt - 1:
-                                    await asyncio.sleep(0.25)  # Exponential backoff
-                                else:
-                                    parsed_txs = []
-
-                        # Extend the all_parsed_txs list with the results
-                        all_parsed_txs.extend(parsed_txs)
-
-                    return all_parsed_txs
-
-                relevant_early_txs = await parse_large_tx_list(deploy_sigs)
-
-                relevant_early_txs_confirmed = []
-                for tx in relevant_early_txs:
-                    if "'transactionError': None" in str(tx):
-                        if "CREATE_POOL" in str(tx):
-                            relevant_early_txs_confirmed.append(tx)
-                            break
-
-                try:
-                    deploy_sig = relevant_early_txs_confirmed[0]['signature']
-                except IndexError:
-                    deploy_sig = ''
-
-    deploy_tx = await parse_tx_list([deploy_sig], session=session)
-
-    if not deploy_tx:
-        return {
-            'token_mint': token_mint,
-            'symbol': symbol,
-            'name': name,
-            'img_url': img_url,
-            'starting_mc': None,
-            'starting_liq': None,
-            'twitter': None,
-            'telegram': None,
-            'other_links': None,
-            'lp_creation_time': lp_creation_time,
-            'deployer': deployer,
-            'bundled': None,
-            'airdropped': None,
-            'supply': supply,
-            'decimals': decimals,
-            'lp_address': None,
-            'initial_lp_supply': None
-        }
-
-    # TODO Calculate LP Supply and use it to calculate LP Burns
-    deploy_trf = deploy_tx[0]['tokenTransfers'][-1]
-    lp_address = deploy_trf['mint']
-    initial_lp_supply = deploy_trf['tokenAmount']
-
-    slot = deploy_tx[0]['slot']
-    deploy_sig = deploy_tx[0]['signature']
-
-    cluster_url = rpc_url
-    client = Client(cluster_url)
-    block_txs = client.get_block(slot, max_supported_transaction_version=0).to_json()
-    block_txs = json.loads(block_txs)['result']['transactions']
-
-    relevant_txs = []
-    for tx in block_txs:
-        if token_mint in str(tx):
-            relevant_txs.extend(tx['transaction']['signatures'])
-
-    relevant_txs.remove(deploy_sig)
-
-    max_attempts = 5
-
-    for attempt in range(max_attempts):
-        try:
-            relevant_txs = await parse_tx_list(relevant_txs)
-            break  # Exit the loop if the function succeeds
-        except Exception as e:
-            if attempt < max_attempts - 1:
-                await asyncio.sleep(0.25)  # Exponential backoff
-            else:
-                raise  # Re-raise the last exception if all retries fail
-
-    relevant_txs_confirmed = []
-    for tx in relevant_txs:
-        if "'transactionError': None" in str(tx):
-            relevant_txs_confirmed.append(tx)
-
-    relevant_txs = relevant_txs_confirmed
-
-    # Initialize total amount
-    total_bundled = 0
-
-    # Add up bundled swaps
-    for item in relevant_txs:
-        # Check if 'token_transfers' key exists to avoid KeyError
-        if 'tokenTransfers' in item:
-            # Iterate through each dictionary in the 'token_transfers' list
-            for transfer in item['tokenTransfers']:
-                # Check if this dictionary's 'mint' matches our variable and add 'token_amount' to total
-                if transfer['mint'] == token_mint:
-                    total_bundled += transfer['tokenAmount']
-
-    bundled = round((total_bundled / supply * 100), 2)
-
-    parsed_deploy_tx = await parse_tx_list([deploy_sig])
-
-    lp_creation_time = parsed_deploy_tx[0]['timestamp']
-
-    starting_sol = 0
-    starting_tokens = 0
-    sol_price = await get_sol_price()
-
-    # GET STARTING SOL AND STARTING TOKENS
-    for item in parsed_deploy_tx:
-        # Check if 'token_transfers' key exists to avoid KeyError
-        if 'tokenTransfers' in item:
-            # Iterate through each dictionary in the 'token_transfers' list
-            for transfer in item['tokenTransfers']:
-                # Check if this dictionary's 'mint' matches our variable and add 'token_amount' to total
-                if transfer['mint'] == 'So11111111111111111111111111111111111111112':
-                    starting_sol += transfer['tokenAmount']
-                if transfer['mint'] == token_mint:
-                    starting_tokens += transfer['tokenAmount']
-
-    starting_liq = round((starting_sol * sol_price * 2), 2)
-    starting_price = starting_sol * sol_price / starting_tokens
-    starting_mc = round((starting_price * supply), 2)
-
-    airdropped = round((supply - starting_tokens) / supply * 100, 2)
-
-    if deployer in ['TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM']:
-        airdropped = 0.00
-
-    airdropped = None if abs(airdropped) >= 100 else airdropped
-    bundled = None if abs(bundled) >= 100 else bundled
-
-    twitter = [None] if not twitter else twitter
-    telegram = [None] if not telegram else telegram
-    other_links = [None] if not other_links else other_links
-
-    payload = {
-        'token_mint': token_mint,
-        'symbol': symbol,
-        'name': name,
-        'img_url': img_url,
-        'starting_mc': starting_mc,
-        'starting_liq': starting_liq,
-        'twitter': twitter[0],
-        'telegram': telegram[0],
-        'other_links': other_links[0],
-        'lp_creation_time': lp_creation_time,
-        'deployer': deployer,
-        'bundled': bundled,
-        'airdropped': airdropped,
-        'supply': supply,
-        'decimals': decimals,
-        'lp_address': lp_address,
-        'initial_lp_supply': initial_lp_supply
-    }
-
-    pprint(f'Metadata Payload For: {token_mint}\n{payload}\n\n')
-    return payload
-
-
-async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=None):
-    # if token is not in DB already, fetch metadata with helius API and add it to db[else get it from the db]
-
-    if not await mint_exists(token_mint, pool=pool):  # TODO -> I/O that we can potentially remove
-        # print(token_mint)
-        metadata = await retrieve_metadata(token_mint, session=session)
-
-        '''
-        if not metadata:
-            # TODO -> add a record that logs the bad token so that we can early exit if we see it again.
-
-            metadata = {
+        deploy_tx = await parse_tx_list([deploy_sig], session=session)
+        if not deploy_tx:
+            return {
                 'token_mint': token_mint,
                 'symbol': symbol,
                 'name': name,
@@ -677,36 +487,191 @@ async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=
                 'twitter': None,
                 'telegram': None,
                 'other_links': None,
-                'lp_creation_time': None,
+                'lp_creation_time': lp_creation_time,
                 'deployer': deployer,
                 'bundled': None,
                 'airdropped': None,
                 'supply': supply,
-                'decimals': decimals
+                'decimals': decimals,
+                'lp_address': None,
+                'initial_lp_supply': None
             }
 
+        deploy_trf = deploy_tx[0]['tokenTransfers'][-1]
+        lp_address = deploy_trf['mint']
+        initial_lp_supply = deploy_trf['tokenAmount']
 
-            pprint(f'{token_mint} DOES NOT HAVE VALID METADATA')
-            return
-        '''
+        slot = deploy_tx[0]['slot']
+        deploy_sig = deploy_tx[0]['signature']
 
-        # Add metadata to db
-        try:
-            await add_metadata_to_db(metadata, pool=pool)  # TODO -> I/O that we can optimize
-            pprint(metadata)
-            return metadata
-        except Exception as metadata_error:
-            pprint('METADATA ERROR')
-            pprint(metadata_error)
-            raise metadata_error
+        client = AsyncClient(rpc_url)
+        block_txs = []
+        for att in range(4):
+            try:
+                block_txs = await client.get_block(slot, max_supported_transaction_version=0)
+                block_txs = json.loads(block_txs.to_json())['result']['transactions']
+                break
+            except:
+                if att == 3:
+                    block_txs = []
 
-    else:
-        if regular_use:
-            # retrieve metadata from db
-            metadata = await get_metadata_from_db(token_mint, pool=pool)  # TODO I/O that we can skip/optimise
-            return metadata
+        twitter = [None] if not twitter else twitter
+        telegram = [None] if not telegram else telegram
+        other_links = [None] if not other_links else other_links
+
+        if block_txs:
+            relevant_txs = [tx['transaction']['signatures'] for tx in block_txs if token_mint in str(tx)]
+            relevant_txs = [sig for sublist in relevant_txs for sig in sublist]
+            relevant_txs.remove(deploy_sig)
         else:
-            return None
+            return {
+                'token_mint': token_mint,
+                'symbol': symbol,
+                'name': name,
+                'img_url': img_url,
+                'starting_mc': None,
+                'starting_liq': None,
+                'twitter': twitter,
+                'telegram': telegram,
+                'other_links': other_links,
+                'lp_creation_time': lp_creation_time,
+                'deployer': deployer,
+                'bundled': None,
+                'airdropped': None,
+                'supply': supply,
+                'decimals': decimals,
+                'lp_address': lp_address,
+                'initial_lp_supply': initial_lp_supply
+            }
+
+        for attempt in range(3):
+            try:
+                relevant_txs = await parse_tx_list(relevant_txs, session=session)
+                break
+            except:
+                await asyncio.sleep(0.25)
+
+        relevant_txs_confirmed = [tx for tx in relevant_txs if "'transactionError': None" in str(tx)]
+
+        total_bundled = sum(
+            transfer['tokenAmount'] for tx in relevant_txs_confirmed for transfer in tx.get('tokenTransfers', []) if
+            transfer['mint'] == token_mint)
+        bundled = round(total_bundled / supply * 100, 2) if total_bundled else None
+
+        parsed_deploy_tx = await parse_tx_list([deploy_sig], session=session)
+        lp_creation_time = parsed_deploy_tx[0]['timestamp']
+
+        starting_sol = sum(
+            transfer['tokenAmount'] for item in parsed_deploy_tx for transfer in item.get('tokenTransfers', []) if
+            transfer['mint'] == 'So11111111111111111111111111111111111111112')
+        starting_tokens = sum(
+            transfer['tokenAmount'] for item in parsed_deploy_tx for transfer in item.get('tokenTransfers', []) if
+            transfer['mint'] == token_mint)
+
+        sol_price = await get_sol_price()
+        starting_liq = round(starting_sol * sol_price * 2, 2)
+        starting_price = starting_sol * sol_price / starting_tokens if starting_tokens else 0
+        starting_mc = round(starting_price * supply, 2)
+
+        airdropped = round((supply - starting_tokens) / supply * 100, 2)
+        if deployer in ['TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM']:
+            airdropped = 0.0
+        airdropped = None if abs(airdropped) >= 100 else airdropped
+
+        return {
+            'token_mint': token_mint,
+            'symbol': symbol,
+            'name': name,
+            'img_url': img_url,
+            'starting_mc': starting_mc,
+            'starting_liq': starting_liq,
+            'twitter': twitter[0],
+            'telegram': telegram[0],
+            'other_links': other_links[0],
+            'lp_creation_time': lp_creation_time,
+            'deployer': deployer,
+            'bundled': bundled,
+            'airdropped': airdropped,
+            'supply': supply,
+            'decimals': decimals,
+            'lp_address': lp_address,
+            'initial_lp_supply': initial_lp_supply
+        }
+
+    finally:
+        if new_session:
+            await session.close()
+
+
+async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=None):
+    new_session = not bool(session)
+    session = session or aiohttp.ClientSession()
+
+    new_pool = not bool(pool)
+    pool = pool or await asyncpg.create_pool(dsn=pg_db_url)
+
+    try:
+        if not regular_use:
+            metadata = await retrieve_metadata(token_mint, session=session)
+            if metadata:
+                try:
+                    await add_metadata_to_db(metadata, pool=pool)
+                    return metadata
+                except Exception as metadata_error:
+                    pprint(f'METADATA ERROR: {metadata_error}')
+                    raise metadata_error
+
+        elif not await mint_exists(token_mint, pool=pool):
+            metadata = await retrieve_metadata(token_mint, session=session)
+
+            '''
+            if not metadata:
+                # TODO -> add a record that logs the bad token so that we can early exit if we see it again.
+    
+                metadata = {
+                    'token_mint': token_mint,
+                    'symbol': symbol,
+                    'name': name,
+                    'img_url': img_url,
+                    'starting_mc': None,
+                    'starting_liq': None,
+                    'twitter': None,
+                    'telegram': None,
+                    'other_links': None,
+                    'lp_creation_time': None,
+                    'deployer': deployer,
+                    'bundled': None,
+                    'airdropped': None,
+                    'supply': supply,
+                    'decimals': decimals
+                }
+    
+    
+                pprint(f'{token_mint} DOES NOT HAVE VALID METADATA')
+                return
+            '''
+
+            try:
+                await add_metadata_to_db(metadata, pool=pool)
+                return metadata
+            except Exception as metadata_error:
+                pprint(f'METADATA ERROR: {metadata_error}')
+                raise metadata_error
+
+        else:
+            if regular_use:
+                # retrieve metadata from db
+                metadata = await get_metadata_from_db(token_mint, pool=pool)
+                return metadata
+            else:
+                return None
+
+    finally:
+        if new_session:
+            await session.close()
+        if new_pool:
+            await pool.close()
+
 
 
 async def get_dexscreener_data(token_mint):
@@ -812,28 +777,24 @@ async def get_num_holders(mint='', session=None, birdeye_api_key='813c7191c5f24a
         'x-chain': 'solana'
     }
 
-    if session is None:
-        session = aiohttp.ClientSession()
-        is_new_session = True
-    else:
-        is_new_session = False
+    new_session = not bool(session)
+    session = session or aiohttp.ClientSession()
 
     retries = 3
     delay = 0.25
 
     try:
         for attempt in range(retries + 1):
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('data', {}).get('holder')
+            response = await session.get(url, headers=headers)
+
+            if response.status == 200:
+                data = await response.json()
+                return data.get('data', {}).get('holder')
+            else:
+                if attempt < retries:
+                    await asyncio.sleep(delay)
                 else:
-                    if attempt < retries:
-                        await asyncio.sleep(delay)  # Wait before retrying
-                    else:
-                        return None  # Return None after exhausting retries
+                    return None
     finally:
-        if is_new_session:
+        if new_session:
             await session.close()
-
-

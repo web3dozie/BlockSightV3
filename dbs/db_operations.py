@@ -1,3 +1,4 @@
+import time
 from pprint import pprint
 
 import asyncpg, backoff
@@ -135,15 +136,22 @@ async def user_exists(username: str, db_url=pg_db_url, pool=None):
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
 async def mint_exists(token_mint, pool=None, table_name='metadata'):
     try:
-        async with pool.acquire() as conn:  # Use a connection from the pool
+        new_conn = not bool(pool)
+        conn = await asyncpg.connect(dsn=pg_db_url) if not pool else await pool.acquire()
+        try:
             if table_name in ['metadata', 'security']:
                 query = f"SELECT EXISTS(SELECT 1 FROM {table_name} WHERE token_mint = $1 LIMIT 1);"
                 exists = await conn.fetchval(query, token_mint)
             else:
                 print(table_name)
                 return False
+        finally:
+            if new_conn:
+                await conn.close()
+            else:
+                await pool.release(conn)
 
-            return bool(exists)
+        return bool(exists)
     except asyncpg.PostgresError as e:
         print(f"Database error: {e}")
     except Exception as e:
@@ -152,10 +160,10 @@ async def mint_exists(token_mint, pool=None, table_name='metadata'):
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=5)
 async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
-    if pool:
-        conn = await pool.acquire(timeout=150)
-    else:
-        conn = await asyncpg.connect(dsn=db_url)
+
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
+
     try:
         # Insert into metadata table
         await conn.execute('''
@@ -172,23 +180,20 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
                            data['initial_lp_supply']
                            )
     except Exception as e:
-        pprint(f'An error occurred while adding metadata to db: {e}')
-        pprint(f'This is the token in question')
-        pprint(data)
-        print('\n\n')
+        pprint(f'An error occurred while adding {data} metadata to db: {e}\n')
 
     finally:
-        await conn.close()  # Ensure the connection is closed
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
 async def get_metadata_from_db(token_mint, db_url=pg_db_url, pool=None):
-    if pool:
-        conn = await pool.acquire()
-    else:
-        print(type(pool))
-        print(f'tried to open brand new conn for {token_mint}')
-        conn = await asyncpg.connect(dsn=db_url)
+
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
     try:
         # Join the metadata and security tables to retrieve all necessary data
@@ -221,8 +226,12 @@ async def get_metadata_from_db(token_mint, db_url=pg_db_url, pool=None):
             return data
         else:
             return None
+
     finally:
-        await conn.close()  # Ensure the connection is closed
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
@@ -232,43 +241,37 @@ async def update_txs_db(txs_data, db_url=pg_db_url, pool=None):
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (txid) DO NOTHING
         '''
-    if pool:
-        async with pool.acquire() as conn:
-            try:
-                async with conn.transaction():
-                    txs_tuples = [
-                        (tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
-                         tx['timestamp']) for tx in txs_data]
-                    await conn.executemany(insert_sql, txs_tuples)
-            except Exception as e:  # Catch all exceptions, could be more specific if needed
-                print(f"An error occurred. \nWhere: update_txs_db(): \n{e}")
-                # asyncpg automatically rolls back the transaction in case of errors within the context manager
-                raise  # Reraise the exception to trigger the backoff
-            finally:
-                await conn.close()  # Ensure the connection is always closed
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
-    else:
-        conn = await asyncpg.connect(dsn=db_url)
-        try:
-            async with conn.transaction():
-                txs_tuples = [(tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
-                               tx['timestamp']) for tx in txs_data]
-                await conn.executemany(insert_sql, txs_tuples)
-        except Exception as e:  # Catch all exceptions, could be more specific if needed
-            print(f"An error occurred. \nWhere: update_txs_db(): \n{e}")
-            # asyncpg automatically rolls back the transaction in case of errors within the context manager
-            raise  # Reraise the exception to trigger the backoff
-        finally:
-            await conn.close()  # Ensure the connection is always closed
+    try:
+        async with conn.transaction():
+            txs_tuples = [
+                (tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
+                 tx['timestamp']) for tx in txs_data]
+            await conn.executemany(insert_sql, txs_tuples)
+    except Exception as e:  # Catch all exceptions, could be more specific if needed
+        print(f"An error occurred. \nWhere: update_txs_db(): \n{e}")
+        # asyncpg automatically rolls back the transaction in case of errors within the context manager
+        raise e  # Reraise the exception to trigger the backoff
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
 
-async def useful_wallets(pool=None):
+async def useful_wallets(pool=None, db_url=pg_db_url):
     smart_wallets = []
 
-    async with pool.acquire() as conn:
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
+    try:
         query = "SELECT wallet, trades, win_rate, avg_size, pnl FROM wallets WHERE trades >= 5"
+        start = time.time()
         rows = await conn.fetch(query)
+        # print(f'It took {time.time() - start:.2f} secs to all wallets.')
 
         for wallet in rows:
             grades = determine_wallet_grade(
@@ -276,6 +279,14 @@ async def useful_wallets(pool=None):
             )
             if grades.get('overall_grade') in ['SS', 'S', 'A+']:
                 smart_wallets.append(wallet['wallet'])
+    except Exception as e:
+        print(f'useful_wallets() failed: {e}')
+        raise e
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
     return smart_wallets
 
@@ -298,14 +309,19 @@ async def insert_snapshot_into_db(data, db_url=pg_db_url, pool=None):
     pass
 
 
-async def get_tx_list(wallet, pool=None, conn=None):
-    if not conn:
-        conn = await pool.acquire()
+async def get_tx_list(wallet, pool=None):
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=pg_db_url)
 
-    query = "SELECT * FROM txs WHERE wallet = $1 ORDER BY timestamp DESC LIMIT 50"
+    try:
+        query = "SELECT * FROM txs WHERE wallet = $1 ORDER BY timestamp DESC LIMIT 50"
+        rows = await conn.fetch(query, wallet)
+        tx_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
-    rows = await conn.fetch(query, wallet)
+        return tx_list
 
-    tx_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
-
-    return tx_list
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
