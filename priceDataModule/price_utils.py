@@ -68,25 +68,40 @@ async def update_price_data(token_mint, start_timestamp, end_timestamp, pool=Non
 
     items = price_data.get("data", {}).get("items", [])
 
-    records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
+    semaphore = asyncio.Semaphore(2)
 
-    # print(f'There are {len(records_to_insert)} rows of price data to insert')
+    async def insert_records(pg_pool, records):
+        num_records = len(records)
 
-    try:
-        async with pool.acquire() as conn:
-            await conn.copy_records_to_table(
+        try:
+            async with pg_pool.acquire() as conn:
+                await conn.copy_records_to_table(
                     'buffer_token_prices',
                     columns=['token_mint', 'price', 'timestamp'],
-                    records=records_to_insert
+                    records=records
                 )
+        except Exception as e:
+            print(f"Unexpected error from update_price_data: Was trying to add {num_records} rows of price data. {e}")
+            raise e
 
-    except Exception as e:
-        print(f"Unexpected error from update_price_data: {e}")
-        raise e
+    async def process_chunks(pg_pool, records, chunk_size=1000):
+        tasks = []
+        for i in range(0, len(records), chunk_size):
+            chunk = records[i:i + chunk_size]
+            tasks.append(asyncio.create_task(sem_insert_records(pg_pool, chunk)))
+
+        await asyncio.gather(*tasks)
+
+    async def sem_insert_records(pg_pool, chunk):
+        async with semaphore:
+            await insert_records(pg_pool, chunk)
+
+    records_to_insert = [(token_mint, item['value'], item['unixTime']) for item in items]
+    await process_chunks(pool, records_to_insert, chunk_size=3000)
 
 
 async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=None):
-    MAX_TIMESTAMP = int(time.time()) - (12 * 60 * 60)
+    MAX_TIMESTAMP = int(time.time()) - (24 * 60 * 60)
 
     async def wrapper():
         async with pool.acquire() as conn:
@@ -100,15 +115,16 @@ async def token_prices_to_db(token_mint, start_timestamp, end_timestamp, pool=No
             if not min_timestamp:
                 # token is brand new --> get prices from start_timestamp to end_timestamp
                 await update_price_data(token_mint, start_timestamp, end_timestamp, pool=pool)
-                print(f'Updated price data for {token_mint}')
+                # print(f'Updated price data for {token_mint}')
             else:
                 if max_timestamp >= MAX_TIMESTAMP: return
                 await update_price_data(token_mint, max_timestamp, end_timestamp, pool=pool)
-                print(f'Updated price data for {token_mint}')
-
+                # print(f'Updated price data for {token_mint}')
 
     try:
         await wrapper()
+    except asyncio.TimeoutError:
+        print("Operation timed out token_prices_to_db()")
     except Exception as e:
         print(f"Error From token_prices_to_db: {e}")
 

@@ -686,7 +686,7 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
     Returns:
         dict: A dictionary containing the processed wallet summary.
     """
-
+    wallet_data = None
     if await is_wallet_outdated(wallet_address, window=window, pool=pool):
         # Get last 30 days of SPL Buy TXs
         # print('fetching TXS for {wallet_address}')
@@ -722,26 +722,20 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
             return [[key, unique_entries[key]] for key in sorted(unique_entries)]
 
         token_mints_and_timestamps = trim_list(token_mints_and_timestamps)
+        print(f'There are {len(token_mints_and_timestamps)} tokens to work on')
 
         start = time.time()
-        prices_pool = await asyncpg.create_pool(
-            dsn=pg_db_url,
-            min_size=35,
-            max_size=100,
-            max_inactive_connection_lifetime=1000,
-            timeout=100,
-            statement_cache_size=1000
-        )
+        # prices_pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=20, max_size=150)
 
         # print(f"POOL CREATED in {time.time() - start:.2f} secs: There are {len(token_mints_and_timestamps)} tokens to fetch data for")
 
         start = float(time.time())
         try:
-            sem = asyncio.BoundedSemaphore(85)
+            sem = asyncio.BoundedSemaphore(20)
 
             async def limited_task(tmt):
                 async with sem:
-                    await token_prices_to_db(tmt[0], tmt[1], int(time.time()), pool=prices_pool)
+                    await token_prices_to_db(tmt[0], tmt[1], int(time.time()), pool=pool)
 
             # Fetch token info up front and at once
             tasks = [limited_task(tmt) for tmt in token_mints_and_timestamps]
@@ -751,7 +745,7 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
 
             # print('PRICES_UPDATED')
         finally:
-            await prices_pool.close()
+            pass  # await prices_pool.close()
         end = float(time.time())
         print(
             f"PRICES UPDATED in {end - start:.2f} secs")
@@ -807,11 +801,18 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
         pprint(wallet_summary)
         print('\n\n')
 
-        await insert_wallet_into_db(wallet_summary)
-        return wallet_summary
+        await insert_wallet_into_db(wallet_summary, pool=pool)
+        wallet_data = wallet_summary
 
     else:
-        return await get_wallet_data(wallet_address, pool=pool)
+        wallet_data = await get_wallet_data(wallet_address, pool=pool)
+
+    if window == 30:
+        await process_wallet(wallet_address, window=7, pool=pool)
+    if window == 7:
+        await process_wallet(wallet_address, window=3, pool=pool)
+
+    return wallet_data
 
 
 async def calculate_pnl(transactions, sol_price):

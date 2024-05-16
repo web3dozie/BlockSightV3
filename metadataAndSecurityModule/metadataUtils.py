@@ -382,8 +382,11 @@ async def retrieve_metadata(token_mint: str, session=None, client=None):
 
         name = result['content']['metadata']['name']
 
-        img_url = result['content']['links'].get('image') or result['content']['files'].get(
-            'uri') or 'https://cdn-icons-png.flaticon.com/512/2748/2748558.png'
+        try:
+            img_url = result['content']['links'].get('image') or result['content']['files'].get('uri')
+        except AttributeError:
+            img_url = 'https://cdn-icons-png.flaticon.com/512/2748/2748558.png'
+
         description = result['content']['metadata'].get('description', '')
 
         socials = extract_links(description)

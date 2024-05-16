@@ -1,4 +1,5 @@
 import asyncio, socket, aiohttp
+from pprint import pprint
 
 import asyncpg
 from aiohttp import ClientTimeout, TCPConnector
@@ -77,10 +78,12 @@ async def maintain_txs():
 
     It is designed to run forever
     """
-    pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=100, max_size=500)
+    pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=100, max_size=200)
     listener = SmartWalletListener(pool)
 
-    wallet_list = await useful_wallets(listener.pool())
+    wallet_list = await useful_wallets(listener.pool)
+    pprint(wallet_list)
+    print(len(wallet_list))
 
     for wallet in wallet_list:
         await listener.add_wallet_task(wallet)

@@ -7,7 +7,7 @@ from listeners.smart_wallet_listener import maintain_txs
 
 async def main():
 
-    maintain_txs_task = asyncio.create_task(maintain_txs(pool))
+    maintain_txs_task = asyncio.create_task(maintain_txs())
 
     await asyncio.gather(maintain_txs_task)
 

@@ -2,10 +2,10 @@ import asyncio, aiohttp, time, ast
 
 from pprint import pprint
 
-import asyncpg
-from solana.rpc.api import Client
-from solana.rpc.async_api import AsyncClient
 from solders.pubkey import Pubkey
+from solana.exceptions import SolanaRpcException
+from solana.rpc.async_api import AsyncClient
+
 
 from dbs.db_operations import useful_wallets, pg_db_url
 from metadataAndSecurityModule.metadataUtils import rpc_url, get_data_from_helius, get_metadata, get_num_holders
@@ -93,7 +93,16 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
     async def retrieve_largest_accounts(async_client):
         async_client = async_client or AsyncClient(rpc_url)
         mint_pubkey = Pubkey.from_string(token_mint)
-        return await async_client.get_token_largest_accounts(mint_pubkey)
+
+        while True:
+            try:
+                x = await async_client.get_token_largest_accounts(mint_pubkey)
+                break
+            except SolanaRpcException:
+                print(f' Error when getting largest accounts for {token_mint}. Retrying in one second')
+                await asyncio.sleep(1)
+
+        return x
 
     # Start all tasks concurrently
     token_data_future = get_data_from_helius(token_mint, session=session)
@@ -281,9 +290,9 @@ async def get_smart_tg_calls_wrapper(token_mint, pool):
     return {**smart_5m, **smart_1h, **smart_6h}
 
 
-async def take_snapshot(token_mint, pool=None, sol_price=150, session=None):
+async def take_snapshot(token_mint, pool=None, sol_price=150, session=None, client=None):
     dxs, met_sec, smt_wlt, smt_tg = await asyncio.gather(get_full_dxs_data(token_mint, session=session),
-                                                         get_metadata_security_for_snapshot(token_mint, pool=pool, session=session),
+                                                         get_metadata_security_for_snapshot(token_mint, pool=pool, session=session, sol_client=client),
                                                          get_smart_wallets_data_wrapper(token_mint, pool=pool,
                                                                                         sol_price=sol_price),
                                                          get_smart_tg_calls_wrapper(token_mint, pool))
