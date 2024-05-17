@@ -47,7 +47,7 @@ async def insert_address_time_into_db(addressTimeData: dict = None, channelId=No
         print(f"Error {e} while upserting records")
         raise e
     finally:
-        await conn.close()
+        await pool.release(conn)
 
     print("TG Calls Inserted")
 

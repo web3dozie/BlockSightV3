@@ -82,18 +82,18 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
 
     """
     # Define thresholds for each category
-    win_rate_thresholds = {'S': 25, 'A': 20, 'B': 15, 'C': 10, 'F': 10}
-    size_thresholds = {'S': 2000, 'A': 1000, 'B': 500, 'C': 200, 'F': 200}
+    win_rate_thresholds = {'S': 30, 'A': 25, 'B': 20, 'C': 15, 'F': 10}
+    size_thresholds = {'S': 1500, 'A': 1000, 'B': 750, 'C': 500, 'F': 200}
 
     if window == 30:
-        trades_thresholds = {'S': 100, 'A': 75, 'B': 50, 'C': 20, 'F': 20}
-        pnl_thresholds = {'S': 25000, 'A': 10000, 'B': 2500, 'C': 1000, 'F': 1000}
+        trades_thresholds = {'S': 150, 'A': 100, 'B': 50, 'C': 25, 'F': 10}
+        pnl_thresholds = {'S': 40000, 'A': 25000, 'B': 15000, 'C': 7500, 'F': 2500}
     elif window == 7:
-        trades_thresholds = {'S': 100 / 4, 'A': 75 / 4, 'B': 50 / 4, 'C': 20 / 4, 'F': 20 / 4}
-        pnl_thresholds = {'S': 25000 / 4, 'A': 10000 / 4, 'B': 2500 / 4, 'C': 1000 / 4, 'F': 1000 / 4}
+        trades_thresholds = {'S': 150 / 4, 'A': 100 / 4, 'B': 50 / 4, 'C': 25 / 4, 'F': 10 / 4}
+        pnl_thresholds = {'S': 40000 / 4, 'A': 25000 / 4, 'B': 15000 / 4, 'C': 7500 / 4, 'F': 2500 / 4}
     else:
-        trades_thresholds = {'S': 100 / 30, 'A': 75 / 30, 'B': 50 / 30, 'C': 20 / 30, 'F': 20 / 30}
-        pnl_thresholds = {'S': 30000 / 30, 'A': 15000 / 30, 'B': 5000 / 30, 'C': 2500 / 30, 'F': 1000 / 30}
+        trades_thresholds = {'S': 150 / 10, 'A': 100 / 10, 'B': 50 / 10, 'C': 25 / 10, 'F': 10 / 10}
+        pnl_thresholds = {'S': 40000 / 10, 'A': 25000 / 10, 'B': 15000 / 10, 'C': 7500 / 10, 'F': 2500 / 10}
 
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
@@ -134,14 +134,17 @@ def determine_wallet_grade(trades: int, win_rate: float, avg_size: float, pnl: f
     if trades < trades_thresholds['F']:
         overall_points -= 15
 
-    if trades < 10:
+    if trades < window / 3:
         overall_points -= 20
+
+    if trades > window * 20:
+        overall_points -= 10
 
     if avg_size < size_thresholds['F']:
         overall_points -= 5
 
     if pnl < pnl_thresholds['F']:
-        overall_points -= 15
+        overall_points -= 20
 
     # Determine overall tier
     if overall_points >= 115:
@@ -575,15 +578,14 @@ async def insert_wallet_into_db(data: dict, db_url: str = pg_db_url, pool=None) 
     try:
         # Prepare the INSERT INTO statement with PostgreSQL syntax
         query = """
-        INSERT INTO wallets(wallet, trades, win_rate, avg_size,last_checked, pnl, window_value)
+        INSERT INTO wallets(wallet, trades, win_rate, avg_size, last_checked, pnl, window_value)
         VALUES($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (wallet) DO UPDATE SET
-        trades = EXCLUDED.trades, 
-        win_rate = EXCLUDED.win_rate,
-        avg_size = EXCLUDED.avg_size,
-        last_checked = EXCLUDED.last_checked,
-        pnl = EXCLUDED.pnl,
-        window_value = EXCLUDED.window_value
+        ON CONFLICT (wallet, window_value) DO UPDATE SET
+            trades = EXCLUDED.trades, 
+            win_rate = EXCLUDED.win_rate,
+            avg_size = EXCLUDED.avg_size,
+            last_checked = EXCLUDED.last_checked,
+            pnl = EXCLUDED.pnl;
         """
         # Convert the dictionary to a list of values in the correct order for the placeholders
         values = [data['wallet'], data['trades'], data['win_rate'],
@@ -613,6 +615,9 @@ async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, windo
     # Calculate the threshold timestamp for 1 day ago
     one_day_ago = int(time.time()) - (24 * 60 * 60)
     window = f"{window}d"
+
+    if window in [3, 7]:
+        window = f"0{window}d"
 
     new_conn = not bool(pool)
     conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
@@ -686,7 +691,7 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
     Returns:
         dict: A dictionary containing the processed wallet summary.
     """
-    wallet_data = None
+
     if await is_wallet_outdated(wallet_address, window=window, pool=pool):
         # Get last 30 days of SPL Buy TXs
         # print('fetching TXS for {wallet_address}')

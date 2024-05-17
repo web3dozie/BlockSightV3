@@ -23,7 +23,7 @@ async def main():
     pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=30, max_size=50, command_timeout=360)
     client = AsyncClient(rpc_url)
     while True:
-        x = await snapshot_wrapper('9jaZhJM6nMHTo4hY9DGabQ1HNuUWhJtm7js1fmKMVpkN', pool=pool, client=client)
+        x = await snapshot_wrapper('D3JPRdw3DCdSDeMzoAxdw4LEgzUPy3EvwShwMZD8wgXj', pool=pool, client=client)
         pprint(x)
 
 asyncio.run(main())

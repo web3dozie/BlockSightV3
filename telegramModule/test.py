@@ -23,7 +23,7 @@ async def vetChannelLimited(semaphore, channel, tg_client, pool=None):
 
 
 async def main_func():
-    semaphore = asyncio.Semaphore(2)  # Limits the number of concurrent tasks to
+    semaphore = asyncio.Semaphore(1)  # Limits the number of concurrent tasks to
     client = TelegramClient('anon', api_id, api_hash)
     pool = await asyncpg.create_pool(dsn=pg_db_url)
 

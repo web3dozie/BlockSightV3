@@ -9,12 +9,12 @@ from walletVettingModule.wallet_vetting_utils import parse_for_swaps
 
 
 class SmartWalletListener:
-    def __init__(self, pool, wait_time=200):
+    def __init__(self, pool, wait_time=60):
         self.wait_time = wait_time
         self.tasks_ready = asyncio.Queue()
         self.currently_running = set()
-        self.concurrent_wallets = 1
-        self.concurrent_tokens_per_wallet = 1
+        self.concurrent_wallets = 40
+        self.concurrent_tokens_per_wallet = 2
         self.timeout = ClientTimeout(total=120)
         self.session = aiohttp.ClientSession(timeout=self.timeout)
         self.pool = pool
@@ -71,17 +71,18 @@ async def wallet_task(wallet: str, listener):
     return wallet, wallet_task
 
 
-async def maintain_txs():
+async def maintain_txs(window=30):
     """
     This function creates a scheduler and makes sure each
     wallet's txs gets fetched exactly once every n minutes.
 
     It is designed to run forever
     """
-    pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=100, max_size=200)
+    pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=50, max_size=100)
     listener = SmartWalletListener(pool)
 
     wallet_list = await useful_wallets(listener.pool)
+
     pprint(wallet_list)
     print(len(wallet_list))
 

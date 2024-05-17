@@ -94,6 +94,7 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
         async_client = async_client or AsyncClient(rpc_url)
         mint_pubkey = Pubkey.from_string(token_mint)
 
+        attempts = 0
         while True:
             try:
                 x = await async_client.get_token_largest_accounts(mint_pubkey)
@@ -101,6 +102,7 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
             except SolanaRpcException:
                 print(f' Error when getting largest accounts for {token_mint}. Retrying in one second')
                 await asyncio.sleep(1)
+                attempts += 1
 
         return x
 
@@ -132,7 +134,6 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
             lp_current_supply = 1
             lp_initial_supply = 2
         else:
-            print('LP DATA TRIGGERED')
             lp_data = await get_data_from_helius(lp_address, session=session)
             lp_decimals = lp_data['token_info']['decimals']
             lp_current_supply = round(((lp_data['token_info']['supply']) / (10 ** lp_decimals)), 2)
@@ -179,46 +180,46 @@ async def get_smart_wallets_data(token_mint, pool, sol_price, smart_wallets, win
         return
 
     query = """
-    WITH buy_transactions AS (
-        SELECT
-            COUNT(*) AS buy_count,
-            SUM(CASE 
-                    WHEN in_mint = 'So11111111111111111111111111111111111111112' THEN in_amt * $1
-                    WHEN in_mint = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' THEN in_amt
-                    WHEN in_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN in_amt
-                    ELSE 0 
-                END) * -1 AS buy_volume
-        FROM txs
-        WHERE
-            wallet = ANY($2) AND
-            in_mint IN ('So11111111111111111111111111111111111111112', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-             'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') AND
-            out_mint = $3 AND
-            timestamp >= $4
-    ),
-    sell_transactions AS (
-        SELECT
-            COUNT(*) AS sell_count,
-            SUM(CASE 
-                    WHEN out_mint = 'So11111111111111111111111111111111111111112' THEN out_amt * $1
-                    WHEN out_mint = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' THEN out_amt
-                    WHEN out_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN out_amt
-                    ELSE 0 
-                END) AS sell_volume
-        FROM txs
-        WHERE
-            wallet = ANY($2) AND
-            out_mint IN ('So11111111111111111111111111111111111111112', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-             'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') AND
-            in_mint = $3 AND
-            timestamp >= $4
-    )
-    SELECT
-        buy_count,
-        sell_count,
-        (buy_volume + sell_volume) AS total_volume,
-        (sell_volume - buy_volume) AS netflows
-    FROM buy_transactions, sell_transactions;
+            WITH buy_transactions AS (
+                SELECT
+                    COUNT(*) AS buy_count,
+                    SUM(CASE 
+                            WHEN in_mint = 'So11111111111111111111111111111111111111112' THEN in_amt * $1
+                            WHEN in_mint = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' THEN in_amt
+                            WHEN in_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN in_amt
+                            ELSE 0 
+                        END) * -1 AS buy_volume
+                FROM txs
+                WHERE
+                    wallet = ANY($2) AND
+                    in_mint IN ('So11111111111111111111111111111111111111112', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+                     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') AND
+                    out_mint = $3 AND
+                    timestamp >= $4 ),
+                    
+            sell_transactions AS (
+                SELECT
+                    COUNT(*) AS sell_count,
+                    SUM(CASE 
+                            WHEN out_mint = 'So11111111111111111111111111111111111111112' THEN out_amt * $1
+                            WHEN out_mint = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' THEN out_amt
+                            WHEN out_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN out_amt
+                            ELSE 0 
+                        END) AS sell_volume
+                FROM txs
+                WHERE
+                    wallet = ANY($2) AND
+                    out_mint IN ('So11111111111111111111111111111111111111112', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+                     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') AND
+                    in_mint = $3 AND
+                    timestamp >= $4 )
+                    
+            SELECT
+                buy_count,
+                sell_count,
+                COALESCE(sell_volume, 0) - COALESCE(buy_volume, 0) AS total_volume,
+                COALESCE(sell_volume, 0) + COALESCE(buy_volume, 0) AS netflows
+            FROM buy_transactions, sell_transactions;
     """
 
     async with pool.acquire() as conn:
@@ -226,6 +227,7 @@ async def get_smart_wallets_data(token_mint, pool, sol_price, smart_wallets, win
 
     buys, sells, total_volume, netflows = (result['buy_count'], result['sell_count'], result['total_volume'],
                                            result['netflows'])
+
     return {
         f'smart_buys_{window}': buys,
         f'smart_sells_{window}': sells,

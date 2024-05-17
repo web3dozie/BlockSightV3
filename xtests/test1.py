@@ -1,36 +1,24 @@
-import asyncio
-import time
-from pprint import pprint
+async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> dict:
+    """
+    Process a wallet by fetching transactions, calculating PnL, and updating the database.
 
-import asyncpg
+    Args:
+        pool:
+        wallet_address (str): The wallet address to process.
+        window (int): The number of days to consider for transaction history.
 
-from dbs.db_operations import pg_db_url
-from walletVettingModule.wallet_vetting_utils import process_wallet
+    Returns:
+        dict: A dictionary containing the processed wallet summary.
+    """
 
-wallets = ['2AnSRuVoRyPBUE1FvgEqdiYi55p42u7LLBB91eGVAviT',
-           '2e6xkkPWPvncyuUQ97Y1XGVV9psghRD373TtghBZEZ1R',
-           '8EgH6xn9rAVSMtTUV915mrCuriFixLQ7ZRCtxpY4kj4D',
-           '4ERXcciCg8V89DdnJjN8rAZcZRiSWEfzrHK8iDcYbaCx',
-           '7sRF3XHhDGiuuwAr8hzkF2Q4BEkRi7J4Ei6rfUWBig1v',
-           'Gw8QfcFFE1Mvo5VBBPWAhRcfUB75bz37b4EaNZECKCsu',
-           '872GmVq2iSBNd7g4N31XZ8S7mVnpPxDHJL3UbwaGnrnp',
-           '4ZCo5NLb1KxRymHaWh341WidGF3nYqBGanhHoq4HUGaf',
-           '5xL655MuivWhrbKe341jbbQv861ye7icAtjdu3uNi7x3',
-           'DoTifJ1QePrZjtWwCXnsyyYzJCUJbdY7CSefzMyGFSAd',
-           'HM1NYR4zdnyMhypYXbGrMcc3C5VBkXcNGK7ANXDfDFMy',
-           '28RpvwXqRtKKYCWmtpPZfepYFWXH9MPwDYy3HHTprLuS']
+    if await is_wallet_outdated(wallet_address, window=window, pool=pool):
+        pass
 
 
-async def main():
-    pool = await asyncpg.create_pool(dsn=pg_db_url)
-    wallet = wallets[8]
+    else:
+        return await get_wallet_data(wallet_address, pool=pool)
 
-    start = float(time.time())
-    x = await process_wallet(wallet, pool=pool)
-    end = float(time.time())
-
-    pprint(x)
-    print(f'This wallet took: {end - start:.2f} secs to get processed')
-
-
-asyncio.run(main())
+    if window == 30:
+        await process_wallet(wallet_address, window=7, pool=pool)
+    if window == 7:
+        await process_wallet(wallet_address, window=3, pool=pool)

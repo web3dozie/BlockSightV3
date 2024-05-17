@@ -261,7 +261,7 @@ async def update_txs_db(txs_data, db_url=pg_db_url, pool=None):
             await pool.release(conn)
 
 
-async def useful_wallets(pool=None, db_url=pg_db_url):
+async def useful_wallets(pool=None, db_url=pg_db_url, window=30):
     smart_wallets = []
 
     new_conn = not bool(pool)
@@ -276,9 +276,11 @@ async def useful_wallets(pool=None, db_url=pg_db_url):
         for wallet in rows:
             grades = determine_wallet_grade(
                 wallet['trades'], wallet['win_rate'], wallet['avg_size'], wallet['pnl']
-            )
+            , window=window)
             if grades.get('overall_grade') in ['SS', 'S', 'A+']:
                 smart_wallets.append(wallet['wallet'])
+
+
     except Exception as e:
         print(f'useful_wallets() failed: {e}')
         raise e
@@ -288,7 +290,7 @@ async def useful_wallets(pool=None, db_url=pg_db_url):
         else:
             await pool.release(conn)
 
-    return smart_wallets
+    return list(set(smart_wallets))
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)

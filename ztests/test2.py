@@ -10,22 +10,23 @@ def calculate_for_keys(daily_revenue, workers_share, workers_number):
     return earnings_per_worker
 
 
-rev = 265
-worker_pge = 49
-num_workers = 18.9
+num_keys = 412
+worker_pge = 30
+num_workers = 13.7
 
-print(f'{calculate_for_tokens(rev, worker_pge, num_workers):.2f}%')
+print(f'{calculate_for_tokens(num_keys, worker_pge, num_workers):.2f}%')
 
 '''
-XAIverse = 15.09%
-Arbitrum = 14.52%
-Aquagems = 14.21%
+Great Pool = 13.49%
 God Bless China = 12.9%
-CryptoTelugu = 12.23%
-unity cap = 10.47%
-ShanyXAI = 10.39%
+Arbitrum = 12.16%
+CryptoTelugu = 10.61%
 XAI END GAME = 10%
 Keyholders = 9.5%
-XMG CAP = 8.85%
-XAIBORG = 8.33%
+XMG CAP = 9.52%
+XAIBORG = 9.23%
+elon musk = 9.21%
+unity cap = 9.05%
+Aquagems = 9.02%
+XAIverse = 8.39%
 '''

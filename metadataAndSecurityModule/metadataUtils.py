@@ -176,13 +176,20 @@ async def get_current_slot_timestamp(client=None):
     # Returns the current slot's number and timestamp
 
     client = client or AsyncClient(rpc_url)
-    try:
-        slot_number = await client.get_block_height(commitment=Commitment('confirmed'))
-        slot_number = slot_number.value
-    except:
-        await asyncio.sleep(0.1)
-        slot_number = await client.get_block_height()
-        slot_number = slot_number.value
+    retries = 0
+    max_retries = 5
+
+    while True:
+        try:
+            slot_number = await client.get_block_height(commitment=Commitment('confirmed'))
+            slot_number = slot_number.value
+            break
+        except:
+            await asyncio.sleep(0.5)
+            retries += 1
+            slot_number = 300500000
+            if retries > max_retries:
+                break
 
     slot_timestamp = int(time.time())
     slot_number += 19632867
@@ -534,9 +541,9 @@ async def retrieve_metadata(token_mint: str, session=None, client=None):
                 'img_url': img_url,
                 'starting_mc': None,
                 'starting_liq': None,
-                'twitter': twitter,
-                'telegram': telegram,
-                'other_links': other_links,
+                'twitter': twitter[0] if twitter[0] else None,
+                'telegram': telegram[0] if telegram[0] else None,
+                'other_links': other_links[0] if other_links[0] else None,
                 'lp_creation_time': lp_creation_time,
                 'deployer': deployer,
                 'bundled': None,
@@ -554,7 +561,28 @@ async def retrieve_metadata(token_mint: str, session=None, client=None):
             except:
                 await asyncio.sleep(0.25)
 
-        relevant_txs_confirmed = [tx for tx in relevant_txs if "'transactionError': None" in str(tx)]
+        if relevant_txs:
+            relevant_txs_confirmed = [tx for tx in relevant_txs if "'transactionError': None" in str(tx)]
+        else:
+            return {
+                'token_mint': token_mint,
+                'symbol': symbol,
+                'name': name,
+                'img_url': img_url,
+                'starting_mc': None,
+                'starting_liq': None,
+                'twitter': twitter[0] if twitter[0] else None,
+                'telegram': telegram[0] if telegram[0] else None,
+                'other_links': other_links[0] if other_links[0] else None,
+                'lp_creation_time': lp_creation_time,
+                'deployer': deployer,
+                'bundled': None,
+                'airdropped': None,
+                'supply': supply,
+                'decimals': decimals,
+                'lp_address': lp_address,
+                'initial_lp_supply': initial_lp_supply
+            }
 
         total_bundled = sum(
             transfer['tokenAmount'] for tx in relevant_txs_confirmed for transfer in tx.get('tokenTransfers', []) if
@@ -674,7 +702,6 @@ async def get_metadata(token_mint, regular_use: bool = True, pool=None, session=
             await session.close()
         if new_pool:
             await pool.close()
-
 
 
 async def get_dexscreener_data(token_mint):
