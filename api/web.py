@@ -92,18 +92,9 @@ async def handle_web_discord_redirect():
 @web_blueprint.route("/get-user-info/")
 @token_required
 async def web_get_user_info():
-    config = {}
-
-    try:
-        with open('config.json', 'r') as file:
-            config = json.load(file)
-    except:
-        print("config.json required")
-        return "Server Error", 500
     token = request.cookies.get('access-token')
-  
     try:
-        decoded_token = jwt.decode(token, key=config["blockSight_secret"], algorithms=["HS256"])
+        decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
     except:
         return "Unauthorized", 401
     
@@ -127,9 +118,13 @@ async def web_analyse_wallet(wallet_address):
 @web_blueprint.route("/get-wallets-leaderboard")
 @token_required
 async def web_wallets_leaderboard():
-    retv = dict()
-    retv["30d"] = await fetch_wallet_leaderboard(current_app.pool, '30d')
-    retv["7d"] = await fetch_wallet_leaderboard(current_app.pool, '7d')
-    retv["3d"] = await fetch_wallet_leaderboard(current_app.pool, '3d')
+    try:
+        retv = dict()
+        retv["30d"] = await fetch_wallet_leaderboard(current_app.pool, '30d')
+        retv["7d"] = await fetch_wallet_leaderboard(current_app.pool, '7d')
+        retv["3d"] = await fetch_wallet_leaderboard(current_app.pool, '3d')
 
-    return retv
+        return retv
+    except Exception as e:
+        current_app.logger.error(e, stack_info=True)
+        return f"Internal Server Error while fetching wallet leaderboard", 500
