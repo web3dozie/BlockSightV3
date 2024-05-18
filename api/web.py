@@ -2,9 +2,10 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 
 # from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
-from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar
+from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data
 from core import analyse_wallet, fetch_wallet_leaderboard
 import json, aiohttp, jwt
+from time import time
 
 web_blueprint = Blueprint('web', __name__)
 
@@ -80,7 +81,7 @@ async def handle_web_discord_redirect():
         print(f"Exception {e} while adding user info to db")
         return "Internal Server Error", 500
     
-    payload = {"user_name": user_info["username"]}
+    payload = {"user_name": user_info["username"], "user_id": user_info["id"], "created_at":int(time())}
     encoded_jwt = jwt.encode(payload, config["blockSight_secret"], algorithm="HS256")
     data = {"message":"Success", "access-token":encoded_jwt}
     resp = await make_response(jsonify(data))
@@ -114,6 +115,7 @@ async def web_get_user_info():
     except Exception as e:
         current_app.logger.error(e)
         return "Internal Server Error", 500
+
 
 
 @web_blueprint.route("/analyse-wallet/<wallet_address>")
