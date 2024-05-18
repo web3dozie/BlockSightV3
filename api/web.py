@@ -107,6 +107,27 @@ async def web_get_user_info():
         current_app.logger.error(e)
         return "Internal Server Error", 500
 
+@web_blueprint.route("/update-user-data")
+@token_required
+async def web_update_user_data():
+    col_name = request.args.get("col", type=str)
+    data = request.args.get("data")
+
+    if not col_name or not data:
+        return "Bad Request: Missing required query param(s)", 400
+    
+    token = request.cookies.get('access-token')
+    try:
+        decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
+    except:
+        return "Unauthorized", 401
+
+    try:
+        await edit_user_data(decoded_token["username"], data, col_name=col_name)
+        return {"msg": "Success"}
+    except Exception as e:
+        current_app.logger.error(e, stack_info=True)
+        return f"Internal Server Error while updating user data", 500
 
 
 @web_blueprint.route("/analyse-wallet/<wallet_address>")
