@@ -1,4 +1,4 @@
-import asyncpg
+import asyncpg, json
 
 from dbs.db_operations import pg_db_url
 from telegram import telegram_blueprint
@@ -14,7 +14,17 @@ app.register_blueprint(core_blueprint, url_prefix='/core')
 
 
 @app.before_serving
-async def create_pool():
+async def create_pool_and_config():
+    config = {}
+
+    try:
+        with open('config.json', 'r') as file:
+            config = json.load(file)
+            app.bs_config = config
+    except:
+        print("config.json required")
+        return "Server Error", 500
+    
     app.pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=300, max_size=800, max_inactive_connection_lifetime=1000, command_timeout=500)
 
 
