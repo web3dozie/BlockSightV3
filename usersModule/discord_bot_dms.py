@@ -116,9 +116,7 @@ class CompanionBot:
                     print('Server does not exist.')
 
             # Check if the message is in a specific channel
-
             # TODO use this part to reward with points and other stuff
-
         # TODO use the client to make a function that checks different channels at intervals and award random points
 
     def run(self):
@@ -127,6 +125,7 @@ class CompanionBot:
 
 async def main():
     await CompanionBot().client.start(BOT_TOKEN)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

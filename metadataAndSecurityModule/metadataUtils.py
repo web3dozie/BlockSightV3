@@ -358,6 +358,7 @@ async def get_data_from_helius(token_mint, api_key=helius_api_key, session=None)
                 if response.status == 200:
                     result = await response.json()
                     result = result.get('result')
+
                     return result
                 else:
                     print(f"Failed to fetch metadata for {token_mint} (helius). Status code: {response.status}")

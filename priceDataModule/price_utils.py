@@ -168,7 +168,7 @@ async def max_price_after(token_mint, timestamp, db_url=pg_db_url):
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
-async def is_win_trade(token_mint, timestamp, pool=None, db_url=pg_db_url):
+async def is_win_trade(token_mint, timestamp, pool=None):
 
     three_point_five_days_in_seconds = 3.5 * 24 * 60 * 60
     # Find the closest price at or after the given timestamp
@@ -193,4 +193,3 @@ async def is_win_trade(token_mint, timestamp, pool=None, db_url=pg_db_url):
             return bool(result)
         except Exception as e:
             print(f'Error occurred in is_win_trade: {e}')
-

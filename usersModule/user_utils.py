@@ -896,79 +896,65 @@ async def create_referral_code(username, code, db_path=pg_db_url, pool=None):
         finally:
             await conn.close()
 
-async def use_referral_code(user: discord.User, code, client: discord.Client, db_path=pg_db_url, pool=None):
-    if pool:
-        async with pool.acquire() as conn:
-            try:
-                # Start a transaction
-                async with conn.transaction():
-                    # Check if the code exists and the referral_code_used is NULL, then update it
-                    update_query = '''
-                    UPDATE users
-                    SET referral_code_used = $1
-                    WHERE username = $2 AND referral_code_used IS NULL
-                    AND EXISTS (
-                        SELECT 1 FROM users WHERE referral_code = $1
-                    )
-                    RETURNING username;
-                    '''
 
-                    result = await conn.fetchval(update_query, code, user.name)
+async def use_referral_code(user: discord.User, code, client, db_path=pg_db_url, pool=None):
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(db_path)
 
-                    # If the referral code was used successfully
-                    if result:
-                        # Fetch the username of the referrer
-                        referrer_query = 'SELECT username FROM users WHERE referral_code = $1;'
-                        referrer_username = await conn.fetchval(referrer_query, code)
+    intents = discord.Intents.default()
+    intents.messages = True
+    intents.guilds = True
+    intents.members = True
+    intents.dm_messages = True
+    intents.message_content = True
 
-                        # Adjust points for both the referrer and the new user
-                        if referrer_username:
-                            await adjust_points(referrer_username, 300)  # Referrer gets 300 points
-                            await adjust_points(user.name, 75)  # New user gets 75 points
+    client = discord.Client(intents=intents)
 
-                            await assign_role(client, user, BETA_ROLE)
+    new_client = not bool(client)
+    client = client or discord.Client(intents=intents)
 
-                            return True
+    if new_client:
+        await client.start(BOT_TOKEN)
 
-                    return False  # If the operation was not successful
-            finally:
-                await conn.close()
-    else:
-        conn = await asyncpg.connect(db_path)
-        try:
-            # Start a transaction
-            async with conn.transaction():
-                # Check if the code exists and the referral_code_used is NULL, then update it
-                update_query = '''
-                UPDATE users
-                SET referral_code_used = $1
-                WHERE username = $2 AND referral_code_used IS NULL
-                AND EXISTS (
-                    SELECT 1 FROM users WHERE referral_code = $1
-                )
-                RETURNING username;
-                '''
+    try:
+        # Start a transaction
+        async with conn.transaction():
+            # Check if the code exists and the referral_code_used is NULL, then update it
+            update_query = '''
+            UPDATE users
+            SET referral_code_used = $1
+            WHERE username = $2 AND referral_code_used IS NULL
+            AND EXISTS (
+                SELECT 1 FROM users WHERE referral_code = $1
+            )
+            RETURNING username;
+            '''
 
-                result = await conn.fetchval(update_query, code, user.name)
+            result = await conn.fetchval(update_query, code, user.name)
 
-                # If the referral code was used successfully
-                if result:
-                    # Fetch the username of the referrer
-                    referrer_query = 'SELECT username FROM users WHERE referral_code = $1;'
-                    referrer_username = await conn.fetchval(referrer_query, code)
+            # If the referral code was used successfully
+            if result:
+                # Fetch the username of the referrer
+                referrer_query = 'SELECT username FROM users WHERE referral_code = $1;'
+                referrer_username = await conn.fetchval(referrer_query, code)
 
-                    # Adjust points for both the referrer and the new user
-                    if referrer_username:
-                        await adjust_points(referrer_username, 300)  # Referrer gets 300 points
-                        await adjust_points(user.name, 75)  # New user gets 75 points
+                # Adjust points for both the referrer and the new user
+                if referrer_username:
+                    await adjust_points(referrer_username, 300)  # Referrer gets 300 points
+                    await adjust_points(user.name, 75)  # New user gets 75 points
 
-                        await assign_role(client, user, BETA_ROLE)
+                    await assign_role(client, user, BETA_ROLE)
 
-                        return True
+                    return True
 
-                return False  # If the operation was not successful
-        finally:
-            await conn.close()
+            return False  # If the operation was not successful
+    finally:
+        if new_conn: await conn.close()
+        else: await pool.release(conn)
+
+        if new_client:
+            await client.close()
+
 
 async def is_user_verified(userid: int, db_url: str = pg_db_url) -> bool:
     query = "SELECT is_verified from users where user_id = $1"
