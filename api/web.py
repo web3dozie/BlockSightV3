@@ -2,7 +2,7 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 
 # from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
-from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data
+from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data, create_referral_code
 from core import analyse_wallet, fetch_wallet_leaderboard
 import json, aiohttp, jwt
 from time import time
@@ -12,6 +12,9 @@ web_blueprint = Blueprint('web', __name__)
 
 @web_blueprint.route("/discord-redirect")
 async def handle_web_discord_redirect():
+    r_uri = request.args.get("r-uri", type=str, default='http://localhost:3000/redirect')
+    r_uri = r_uri.split("?")[0]
+    
     try:
         with open('config.json', 'r') as file:
             config = json.load(file)
@@ -29,7 +32,7 @@ async def handle_web_discord_redirect():
         "client_secret": config["discord_secret"],
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': "http://localhost:3000/redirect"  # TODO Need to change this
+        'redirect_uri': r_uri
     }
 
     data = aiohttp.FormData(data)
@@ -71,7 +74,7 @@ async def handle_web_discord_redirect():
     token = request.cookies.get('access-token')
     if token:
         decoded_token = jwt.decode(token, key=config["blockSight_secret"], algorithms=["HS256"])
-        if decoded_token["user_name"] == user_info["username"]:
+        if decoded_token["username"] == user_info["username"]:
             return {"message": "Success"}
 
     try:
@@ -81,7 +84,7 @@ async def handle_web_discord_redirect():
         print(f"Exception {e} while adding user info to db")
         return "Internal Server Error", 500
     
-    payload = {"user_name": user_info["username"], "user_id": user_info["id"], "created_at":int(time())}
+    payload = {"username": user_info["username"], "user_id": user_info["id"], "created_at":int(time())}
     encoded_jwt = jwt.encode(payload, config["blockSight_secret"], algorithm="HS256")
     data = {"message":"Success", "access-token":encoded_jwt}
     resp = await make_response(jsonify(data))
@@ -98,7 +101,7 @@ async def web_get_user_info():
     except:
         return "Unauthorized", 401
     
-    user_name = decoded_token["user_name"] #continue
+    user_name = decoded_token["username"] #continue
     try:
         user_data = await get_user_data(username=user_name)
         print(user_data)
@@ -112,7 +115,7 @@ async def web_get_user_info():
 async def web_update_user_data():
     col_name = request.args.get("col", type=str)
     data = request.args.get("data")
-
+    print(col_name, data)
     if not col_name or not data:
         return "Bad Request: Missing required query param(s)", 400
     
@@ -123,10 +126,37 @@ async def web_update_user_data():
         return "Unauthorized", 401
 
     try:
-        await edit_user_data(decoded_token["username"], data, col_name=col_name)
-        return {"msg": "Success"}
+        if await edit_user_data(decoded_token["username"], data, col_name=col_name):
+            return {"msg": "Success"}
+        else:
+            current_app.logger.error(f"Failed to edit {col_name} user data for {decoded_token["username"]}")
+            return "Invalid data submitted", 400
     except Exception as e:
-        current_app.logger.error(e, stack_info=True)
+        current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
+        return f"Internal Server Error while updating user data", 500
+
+
+@web_blueprint.route("/create-ref-code")
+@token_required
+async def create_ref_code():
+    code = request.args.get("code")
+
+    if not code:
+        return "Bad Request: Missing required query param - code", 400
+    
+    token = request.cookies.get('access-token')
+    try:
+        decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
+    except:
+        return "Unauthorized", 401
+
+    try:
+        if await create_referral_code(decoded_token["username"], code):
+            return {"msg": "Success"}
+        else:
+            raise Exception("create referral_code failed")
+    except Exception as e:
+        current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
         return f"Internal Server Error while updating user data", 500
 
 

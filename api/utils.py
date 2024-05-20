@@ -1,7 +1,7 @@
 from functools import wraps
 from quart import request, jsonify
 import jwt, json, datetime
-from telegramModule.tg_utils import is_user_verified
+from usersModule.user_utils import is_user_verified
 
 config = {}
 
@@ -31,7 +31,7 @@ def token_required(f):
         
         token_dt = datetime.datetime.fromtimestamp(decoded_jwt["created_at"])
 
-        now = datetime.now()
+        now = datetime.datetime.now()
 
         if (now - token_dt).days > 7:
             return jsonify({"msg": "Token expired"}), 401
@@ -59,7 +59,7 @@ def token_and_verification_required(f):
         
         token_dt = datetime.datetime.fromtimestamp(decoded_jwt["created_at"])
 
-        now = datetime.now()
+        now = datetime.datetime.now()
 
         if (now - token_dt).days > 7:
             return jsonify({"msg": "Token expired"}), 401

@@ -14,8 +14,12 @@ from dbs.db_operations import wallet_exists, channel_exists
 from walletVettingModule.wallet_vetting_utils import is_valid_wallet, determine_wallet_grade, generate_trader_message, \
     determine_tg_grade, generate_tg_message, get_sol_price
 
+import json, asyncpg, discord, asyncio
+
+BOT_TOKEN = 'MTIwNDgyMDc3MjM1OTc2NjA2Ng.GRhhu0.3zkLNrB7dzcPcou_309mKRQ0WWDFbFqwg2pjlg'
 BLOCKSIGHT_SERVER_ID = 1101255371210887258
 VERIFIED_ROLE = 1200907085320294460
+
 BETA_ROLE = 1184124534366933143
 BETA_PRIME_ROLE = 1192053087586762803
 HONORARY_ROLE = 1184125377124257842
@@ -804,7 +808,7 @@ async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url, poo
         'telegram': 'telegram',
         'wallet': 'wallet',
         'email': 'email',
-        'ref-used': 'referral_used'
+        'ref-used': 'referral_used',
     }
 
     if col_name not in valid_columns:
@@ -892,7 +896,6 @@ async def create_referral_code(username, code, db_path=pg_db_url, pool=None):
         finally:
             await conn.close()
 
-
 async def use_referral_code(user: discord.User, code, client: discord.Client, db_path=pg_db_url, pool=None):
     if pool:
         async with pool.acquire() as conn:
@@ -966,3 +969,48 @@ async def use_referral_code(user: discord.User, code, client: discord.Client, db
                 return False  # If the operation was not successful
         finally:
             await conn.close()
+
+async def is_user_verified(userid: int, db_url: str = pg_db_url) -> bool:
+    query = "SELECT is_verified from users where user_id = $1"
+
+    verified = False
+    conn = None
+    try:
+        conn = await asyncpg.connect(dsn=db_url)
+    except Exception as e:
+        print(f"Error {e} while connecting to db {db_url}")
+        raise e
+    
+    try:
+        verified = await conn.fetchval(query, int(userid))
+    except Exception as e:
+        print(f"Error {e} while checking is_verified from db for user {userid}")
+        raise e
+    if verified:
+        await conn.close()
+        return True
+    
+    intents = discord.Intents.default()
+    intents.guilds = True
+    intents.members = True
+    client = discord.Client(intents=intents)
+
+    try:
+        await client.login(BOT_TOKEN)
+        guild = await client.fetch_guild(BLOCKSIGHT_SERVER_ID)
+        member = await guild.fetch_member(userid)
+        if not member:
+            return False
+        verified_role = guild.get_role(VERIFIED_ROLE)
+        beta_role = guild.get_role(BETA_ROLE)
+
+        if verified_role in member.roles:
+            query = "UPDATE users SET is_verified = True WHERE user_id = $1"
+            await conn.execute(query, userid)
+            return True
+        else:
+            return False
+    finally:
+        await client.close()
+        await conn.close()
+
