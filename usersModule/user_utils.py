@@ -908,8 +908,6 @@ async def use_referral_code(user: discord.User, code, client, db_path=pg_db_url,
     intents.dm_messages = True
     intents.message_content = True
 
-    client = discord.Client(intents=intents)
-
     new_client = not bool(client)
     client = client or discord.Client(intents=intents)
 
