@@ -32,6 +32,7 @@ async def create_pool_and_config():
     # Create Pool
     app.pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=300, max_size=800, max_inactive_connection_lifetime=1000, command_timeout=500)
 
+    '''
     # Create Discord Client
     intents = discord.Intents.default()
     intents.messages = True
@@ -41,6 +42,7 @@ async def create_pool_and_config():
     intents.message_content = True
     app.discord_client = discord.Client(intents=intents)
     await app.discord_client.start(BOT_TOKEN)
+    '''
 
     # Create TG Client Pool
     app.tg_pool = TelegramClientPool(api_hash='841396171d9b111fa191dcdce768d223', api_id=21348081)
