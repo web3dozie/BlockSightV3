@@ -172,8 +172,8 @@ async def web_wallets_leaderboard():
     try:
         retv = dict()
         retv["30d"] = await fetch_wallet_leaderboard(current_app.pool, '30d')
-        retv["7d"] = await fetch_wallet_leaderboard(current_app.pool, '7d')
-        retv["3d"] = await fetch_wallet_leaderboard(current_app.pool, '3d')
+        retv["7d"] = await fetch_wallet_leaderboard(current_app.pool, '07d')
+        retv["3d"] = await fetch_wallet_leaderboard(current_app.pool, '03d')
 
         return retv
     except Exception as e:
