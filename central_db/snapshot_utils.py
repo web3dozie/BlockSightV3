@@ -267,20 +267,21 @@ async def get_smart_tg_calls(token_mint, pool, smart_channels, window=''):
         channel_id = ANY($1) AND
         token_mint = $2 AND
         timestamp >= $3
-    );
+    ;
     """
 
     async with pool.acquire() as conn:
         result = await conn.fetchrow(query, smart_channels, token_mint, time_ago)
 
-    return {f'smart_tg_calls{window}': result['calls']}
+    return {f'smart_tg_calls_{window}': result['calls']}
 
 
 async def get_smart_tg_calls_wrapper(token_mint, pool):
-    # TODO implement useful_channels
 
     smart_channels = await useful_channels(pool=pool)
-    smart_channels = [value for d in smart_channels for value in d.values()]
+    smart_channels = [int(str(value)[3:]) for d in smart_channels for value in d]
+
+    print(smart_channels)
 
     # Collect results concurrently
     smart_5m, smart_1h, smart_6h = await asyncio.gather(
