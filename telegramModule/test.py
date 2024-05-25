@@ -2,17 +2,16 @@ import asyncio
 import random
 
 import asyncpg
-from telethon import TelegramClient
+
 
 from dbs.db_operations import pg_db_url
 from listeners.telegram_pools.tg_client_pooling import TelegramClientPool
-from vet_tg_channel import vetChannel, api_id, api_hash
+from vet_tg_channel import vetChannel, api_hash, api_id
 
 with open('channels.txt') as file:
     lines = file.readlines()
 
 telegram_channels = [line.strip() for line in lines]
-random.shuffle(telegram_channels)
 print(telegram_channels)
 
 
@@ -27,7 +26,7 @@ d = +2348162921144
 
 
 async def main_func():
-    semaphore = asyncio.Semaphore(5)  # Limits the number of concurrent tasks to
+    semaphore = asyncio.Semaphore(10)  # Limits the number of concurrent tasks to
     tg_pool = TelegramClientPool(api_hash='841396171d9b111fa191dcdce768d223', api_id=21348081)
     pool = await asyncpg.create_pool(dsn=pg_db_url, min_size=50, max_size=450, command_timeout=360)
 

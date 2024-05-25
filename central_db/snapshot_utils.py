@@ -7,7 +7,7 @@ from solana.exceptions import SolanaRpcException
 from solana.rpc.async_api import AsyncClient
 
 
-from dbs.db_operations import useful_wallets, pg_db_url
+from dbs.db_operations import useful_wallets, pg_db_url, useful_channels
 from metadataAndSecurityModule.metadataUtils import rpc_url, get_data_from_helius, get_metadata, get_num_holders
 
 
@@ -251,7 +251,7 @@ async def get_smart_wallets_data_wrapper(token_mint, pool, sol_price=150):  # TO
 
 
 async def get_smart_tg_calls(token_mint, pool, smart_channels, window=''):
-    return {}
+
     if window == '5m':
         time_ago = int(time.time()) - (5 * 60)
     elif window == '1h':
@@ -278,8 +278,9 @@ async def get_smart_tg_calls(token_mint, pool, smart_channels, window=''):
 
 async def get_smart_tg_calls_wrapper(token_mint, pool):
     # TODO implement useful_channels
-    smart_channels = []
-    # smart_channels = await useful_channels(pool=pool)
+
+    smart_channels = await useful_channels(pool=pool)
+    smart_channels = [value for d in smart_channels for value in d.values()]
 
     # Collect results concurrently
     smart_5m, smart_1h, smart_6h = await asyncio.gather(

@@ -30,6 +30,8 @@ async def insert_address_time_into_db(addressTimeData: dict = None, channelId=No
 
     conn = await pool.acquire()
 
+    pprint(records_to_insert)
+
     try:
         async with conn.transaction():
             await conn.execute('''
@@ -83,7 +85,7 @@ async def extract_address_time_data(messages) -> dict:
                 if match not in potentialAddresses.keys():
                     potentialAddresses[match] = int(message.date.timestamp())
 
-    checkDexSemaphore = asyncio.Semaphore(5)
+    checkDexSemaphore = asyncio.Semaphore(2)
 
     async def dex_id_to_token(dex_id):
         token_found = False

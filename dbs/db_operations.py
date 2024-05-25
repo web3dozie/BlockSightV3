@@ -3,7 +3,7 @@ from pprint import pprint
 
 import asyncpg, backoff
 
-from walletVettingModule.wallet_vetting_utils import determine_wallet_grade
+from walletVettingModule.wallet_vetting_utils import determine_wallet_grade, determine_tg_grade
 
 pg_db_url = 'postgresql://bmaster:BlockSight%23Master@109.205.180.184/blocksight'
 
@@ -291,6 +291,36 @@ async def useful_wallets(pool=None, db_url=pg_db_url, window=30):
             await pool.release(conn)
 
     return list(set(smart_wallets))
+
+
+async def useful_channels(pool=None, db_url=pg_db_url, window=30):
+    smart_channels = []
+
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
+
+    try:
+        query = "SELECT channel_id, channel_name, trades_count, win_rate, last_updated, channel_name FROM channel_stats WHERE trades_count >= 5"
+        start = time.time()
+        rows = await conn.fetch(query)
+        # print(f'It took {time.time() - start:.2f} secs to all wallets.')
+
+        for channel in rows:
+            grades = determine_tg_grade(channel['trades_count'], channel['win_rate'], window=window)
+
+            if grades.get('overall_grade') in ['SS', 'S', 'A+', 'A', 'B+']:
+                smart_channels.append({(int('-100' + str(channel['channel_id']))): channel['channel_name']})
+
+    except Exception as e:
+        print(f'useful_channels() failed: {e}')
+        raise e
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
+
+    return smart_channels
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)

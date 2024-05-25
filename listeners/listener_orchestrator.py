@@ -1,15 +1,15 @@
-import asyncio, asyncpg
-import time
+import asyncio
 
-from dbs.db_operations import pg_db_url
+from listeners.smart_tg_listener import tg_listener
 from listeners.smart_wallet_listener import maintain_txs
 
 
 async def main():
 
-    maintain_txs_task = asyncio.create_task(maintain_txs())
+    wallet_listener_task = asyncio.create_task(maintain_txs())
+    tg_listener_task = asyncio.create_task(tg_listener())
 
-    await asyncio.gather(maintain_txs_task)
+    await asyncio.gather(wallet_listener_task, tg_listener_task)
 
 
 asyncio.run(main())

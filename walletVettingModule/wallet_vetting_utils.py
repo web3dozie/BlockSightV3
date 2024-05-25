@@ -218,26 +218,21 @@ def determine_tg_grade(trades: int, win_rate: float, window=30) -> dict:
         trades_thresholds = {'S': 30 / 4, 'A': 25 / 4, 'B': 20 / 4, 'C': 15 / 4, 'F': 10 / 4}
         pnl_thresholds = {'S': 15 / 4, 'A': 10 / 4, 'B': 5 / 4, 'C': 0 / 4, 'F': 0 / 4}
     else:
-        trades_thresholds = {'S': 30 / 30, 'A': 25 / 30, 'B': 20 / 30, 'C': 15 / 30, 'F': 10 / 30}
-        pnl_thresholds = {'S': 15 / 30, 'A': 10 / 30, 'B': 5 / 30, 'C': -1 / 30, 'F': -5 / 30}
+        trades_thresholds = {'S': 30 / 10, 'A': 25 / 10, 'B': 20 / 10, 'C': 15 / 10, 'F': 10 / 10}
+        pnl_thresholds = {'S': 15 / 10, 'A': 10 / 10, 'B': 5 / 10, 'C': -1 / 10, 'F': -5 / 10}
 
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
         try:
             if value >= thresholds['S']:
-                print('S')
                 return 25
             elif value >= thresholds['A']:
-                print('A')
                 return 15
             elif value >= thresholds['B']:
-                print('B')
                 return 10
             elif value >= thresholds['C']:
-                print('C')
                 return 5
             else:
-                print('F')
                 return 1
         except Exception as e:
             print(e)

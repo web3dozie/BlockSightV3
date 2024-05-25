@@ -26,7 +26,7 @@ async def main():
 
     wallet_list = wallet_list[::-1]
 
-    semaphore = asyncio.Semaphore(12)
+    semaphore = asyncio.Semaphore(10)
 
     pool = None
     try:

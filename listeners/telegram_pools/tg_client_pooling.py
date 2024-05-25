@@ -7,7 +7,7 @@ tg_hash = '841396171d9b111fa191dcdce768d223'
 
 
 class TelegramClientPool:
-    def __init__(self, api_id, api_hash, session_prefix='session', client_count=10):
+    def __init__(self, api_id, api_hash, session_prefix='test', client_count=10):
         self.__clients = []
         self.__lock = Lock()
         self.__in_use = set()
