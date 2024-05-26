@@ -27,7 +27,6 @@ api_hash = config["api_hash"]
 tg_id = 21348081
 tg_hash = '841396171d9b111fa191dcdce768d223'
 
-# smart_channels = [-1002130372878, -1002157259383]
 smart_channels = []
 
 
@@ -37,12 +36,14 @@ async def listen_for_calls(pool=None):
     # print(smart_channels)
 
     tg_names = [value for d in smart_channels for value in d.values()]
-    tg_ids = [value for d in smart_channels for value in d]
+    tg_ids = [value for d in smart_channels for value in d] + [-1002130372878]
 
     print(tg_names)
-    # print(tg_ids)
+    print(tg_ids)
 
     async with TelegramClient('trial', tg_id, tg_hash) as client:
+
+        # TODO Join the channel if not already joined
 
         @client.on(events.NewMessage(chats=tg_ids, incoming=True))
         async def handle_new_message(event):

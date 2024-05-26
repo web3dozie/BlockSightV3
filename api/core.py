@@ -169,6 +169,6 @@ async def handle_discord_redirect():
 
 
 # we can use the same pool object man. I'll put it in web.
-@core_blueprint.route("/get-wallets-leaderboard")
-async def wallets_leaderboard():
-    return await fetch_wallet_leaderboard(current_app.pool)
+@core_blueprint.route("/get-wallets-leaderboard/<window>")
+async def wallets_leaderboard(window):
+    return await fetch_wallet_leaderboard(current_app.pool, window)

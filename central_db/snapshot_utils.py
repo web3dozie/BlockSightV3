@@ -77,7 +77,7 @@ async def get_full_dxs_data(token_mint, session=None):
             except Exception as e:
                 retries += 1
                 print(f"Error: {e}, DXS retrying in 10 seconds...: Mint: {token_mint}")
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(5)
 
         if retries >= max_retries:
             print("Failed to fetch data after retries.")

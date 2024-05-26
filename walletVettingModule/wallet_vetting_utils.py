@@ -1009,6 +1009,10 @@ async def parse_for_swaps(tx_data):
 
 
 async def fetch_wallet_leaderboard(pool, window='30d'):
+
+    if window not in ['30d', '03d', '07d']:
+        window = '30d'
+
     conn = await pool.acquire()
 
     query = ("SELECT * FROM wallets WHERE trades >= 5 AND window_value = $1 AND avg_size >= 10 "
