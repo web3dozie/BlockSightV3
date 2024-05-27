@@ -18,7 +18,7 @@ def token_required(f):
     async def decorated(*args, **kwargs):
         token = None
 
-        token = request.cookies.get('access-token')
+        token = request.headers.get('Access-Token')
 
         if not token:
             return jsonify({"msg": "Token is missing"}), 401
@@ -46,7 +46,7 @@ def token_and_verification_required(f):
     async def decorated(*args, **kwargs):
         token = None
 
-        token = request.cookies.get('access-token')
+        token = request.headers.get('Access-Token')
 
         if not token:
             return jsonify({"msg": "Token is missing"}), 401

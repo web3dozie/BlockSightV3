@@ -54,6 +54,7 @@ def add_cors_headers(response):
     # TODO CHANGE THIS IN PRODUCTION!
     response.headers['Access-Control-Allow-Origin'] = 'http://localhost:3000'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Allow-Headers'] = 'Access-Token'
     return response
 
 
