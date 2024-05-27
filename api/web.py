@@ -3,6 +3,7 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 # from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
 from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data, create_referral_code
+from walletVettingModule.wallet_vetting_utils import is_valid_wallet
 from core import analyse_wallet, fetch_wallet_leaderboard
 import json, aiohttp, jwt
 from time import time
@@ -124,6 +125,9 @@ async def web_update_user_data():
         decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
     except:
         return "Unauthorized", 401
+    
+    if col_name == 'wallet' and not is_valid_wallet(data):
+        return "Invalid wallet submitted", 400
 
     try:
         if await edit_user_data(decoded_token["username"], data, col_name=col_name):
