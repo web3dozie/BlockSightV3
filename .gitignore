@@ -1,7 +1,7 @@
 venv
 *.txt
 **/**/*.db
-**/**/*.session
+**/**/*.session*
 **/**/*.pyc
 **/**/*.tsv
 **/**/*.joblib
