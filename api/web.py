@@ -72,7 +72,7 @@ async def handle_web_discord_redirect():
         print(f"Exception {e} while getting user info")
         return "Internal Server Error", 500
 
-    token = request.cookies.get('access-token')
+    token = request.headers.get('Access-Token')
     if token:
         decoded_token = jwt.decode(token, key=config["blockSight_secret"], algorithms=["HS256"])
         if decoded_token["username"] == user_info["username"]:
@@ -93,10 +93,10 @@ async def handle_web_discord_redirect():
 
     return resp
 
-@web_blueprint.route("/get-user-info/")
+@web_blueprint.route("/get-user-info")
 @token_required
 async def web_get_user_info():
-    token = request.cookies.get('access-token')
+    token = request.headers.get('Access-Token')
     try:
         decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
     except:
@@ -120,7 +120,7 @@ async def web_update_user_data():
     if not col_name or not data:
         return "Bad Request: Missing required query param(s)", 400
     
-    token = request.cookies.get('access-token')
+    token = request.headers.get('Access-Token')
     try:
         decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
     except:
@@ -148,7 +148,7 @@ async def create_ref_code():
     if not code:
         return "Bad Request: Missing required query param - code", 400
     
-    token = request.cookies.get('access-token')
+    token = request.headers.get('Access-Token')
     try:
         decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
     except:
