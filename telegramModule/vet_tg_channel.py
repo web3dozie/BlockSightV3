@@ -4,7 +4,10 @@ from pprint import pprint
 
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.types import InputPeerChannel, PeerChannel
+from telethon.tl.types import Channel
 
+from dbs.db_operations import get_id_from_channel
 from listeners.telegram_pools.tg_client_pooling import TelegramClientPool
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade, token_prices_to_db
@@ -30,7 +33,7 @@ async def insert_address_time_into_db(addressTimeData: dict = None, channelId=No
 
     conn = await pool.acquire()
 
-    pprint(records_to_insert)
+    # pprint(records_to_insert)
 
     try:
         async with conn.transaction():
@@ -49,7 +52,7 @@ async def insert_address_time_into_db(addressTimeData: dict = None, channelId=No
                     SET timestamp = EXCLUDED.timestamp;
                 ''')
             await conn.execute('''DROP TABLE temp_tg_calls;''')
-        print("Records upserted successfully")
+        # print("Records upserted successfully")
     except Exception as e:
         print(f"Error {e} while upserting records")
         raise e
@@ -142,7 +145,6 @@ async def extract_address_time_data(messages) -> dict:
 
     print(f"{len(addressTimeData)} valid trades found.")
 
-
     return verified_mints
 
 
@@ -170,140 +172,142 @@ async def is_outdated_channel(channel_id: int, pl=None):
 
 
 async def vetChannel(channel='', window=30, tg_pool=None, pool=None):
+
     print(f"Vetting  channel {channel}")
 
-    # TODO FIX API HASH/ID
-    tg_pool = tg_pool or TelegramClientPool(api_hash='841396171d9b111fa191dcdce768d223', api_id=21348081)
-
-    client = await tg_pool.acquire()
-    await client.start()
-
-    # Get channel object with TG Client
+    channel_id = await get_id_from_channel(channel_name=channel, pool=pool)
+    conn = None
     try:
-        channel_entity = await client.get_input_entity(channel)
-
-    except ValueError as e:
-        print(f"Given channel {channel} can't be found")
-        raise e
-    except Exception as e:
-        print(f"An unexpected error occurred while trying to resolve channel name, {e}")
-        raise e
-
-    if 'channel_id' not in channel_entity.__dict__:
-        return
-
-    # print(f'CHANNEL OBJECT FETCHED FOR {channel}')
-
-    conn = await pool.acquire()
-
-    try:
-
         # Fetch new messages if the channel is outdated (>1 day since last update)
-        if await is_outdated_channel(channel_entity.channel_id, pl=pool):
-            query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
-            last_db_tx_timestamp = await conn.fetchval(query, channel_entity.channel_id)
+        if await is_outdated_channel(channel_id, pl=pool):
 
-            days_of_data_to_fetch = 0
+            # TODO FIX API HASH/ID
+            tg_pool = tg_pool or TelegramClientPool(api_hash='841396171d9b111fa191dcdce768d223', api_id=21348081)
 
-            if not last_db_tx_timestamp:
-                time_since_last_update = 31 * 24 * 60 * 60
-            else:
-                time_since_last_update = int(time.time()) - last_db_tx_timestamp
+            client = await tg_pool.acquire()
 
-            if time_since_last_update > 24 * 60 * 60:  # seconds in one day
-                days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
+            # Get channel object with TG Client
+            try:
+                channel_entity = await client.get_input_entity(channel)
+                channel_id = channel_entity.channel_id
 
-            offset_date = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
-            breakoff_point = offset_date - datetime.timedelta(days=days_of_data_to_fetch)
+            except ValueError as e:
+                print(f"Given channel {channel} can't be found")
+                raise e
+            except Exception as e:
+                print(f"An unexpected error occurred while trying to resolve channel name, {e}")
+                raise e
 
-            messages = []
+            if 'channel_id' not in channel_entity.__dict__:
+                return
 
-            thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
+            conn = await pool.acquire()
 
-            # Fetch new messages
-            if days_of_data_to_fetch > 0:
+            try:
 
-                while True:
-                    old_len = len(messages)
-                    messages.extend(
-                        (await client(GetHistoryRequest(peer=channel_entity, limit=3000, offset_date=offset_date,
-                                                        offset_id=0, max_id=0, min_id=0, add_offset=0,
-                                                        hash=0))).messages)
+                if True:
+                    query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
+                    last_db_tx_timestamp = await conn.fetchval(query, channel_id)
 
-                    if len(messages) == old_len:
-                        break
-                    elif messages[-1].id == messages[-2].id:
-                        break
+                    days_of_data_to_fetch = 0
 
-                    if messages[-1].date <= breakoff_point.replace(tzinfo=datetime.timezone.utc):
-                        break
+                    if not last_db_tx_timestamp:
+                        time_since_last_update = 31 * 24 * 60 * 60
                     else:
-                        offset_date = messages[-1].date
+                        time_since_last_update = int(time.time()) - last_db_tx_timestamp
 
-                print(f"{len(messages)} messages fetched.")
-                # filter for text messages
-                messages = [message for message in messages if message.message and message.message != "" and int(
-                    message.date.timestamp()) >= thirty_days_ago]
+                    if time_since_last_update > 24 * 60 * 60:  # seconds in one day
+                        days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
 
-                addressTimeData = await extract_address_time_data(messages)
+                    offset_date = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
+                    breakoff_point = offset_date - datetime.timedelta(days=days_of_data_to_fetch)
 
-                await insert_address_time_into_db(addressTimeData=addressTimeData,
-                                                  channelId=channel_entity.channel_id, pool=pool)
+                    messages = []
 
-        # else: return
+                    thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
 
-        query = "SELECT token_mint, timestamp FROM tg_calls WHERE channel_id = $1 and timestamp >= $2"
+                    # Fetch new messages
+                    if days_of_data_to_fetch > 0:
 
-        # Fetch calls and calculate win_rate
-        tg_calls = await conn.fetch(query, channel_entity.channel_id, (int(time.time()) - (window * 24 * 60 * 60)))
+                        while True:
+                            old_len = len(messages)
+                            messages.extend(
+                                (await client(GetHistoryRequest(peer=channel_entity, limit=3000, offset_date=offset_date,
+                                                                offset_id=0, max_id=0, min_id=0, add_offset=0,
+                                                                hash=0))).messages)
 
-        tmts = [[record['token_mint'], record['timestamp']]for record in tg_calls]
+                            if len(messages) == old_len:
+                                break
+                            elif messages[-1].id == messages[-2].id:
+                                break
 
-        sem = asyncio.BoundedSemaphore(10)
+                            if messages[-1].date <= breakoff_point.replace(tzinfo=datetime.timezone.utc):
+                                break
+                            else:
+                                offset_date = messages[-1].date
 
-        async def limited_task(tmt):
-            async with sem:
-                await token_prices_to_db(tmt[0], tmt[1], int(time.time()), pool=pool)
+                        # print(f"{len(messages)} messages fetched.")
+                        # filter for text messages
+                        messages = [message for message in messages if message.message and message.message != "" and int(
+                            message.date.timestamp()) >= thirty_days_ago]
 
-        # Fetch token info up front and at once
-        tasks = [limited_task(tmt) for tmt in tmts]
+                        addressTimeData = await extract_address_time_data(messages)
 
-        # Execute tasks concurrently with a limit of 100 tasks at a time
-        await asyncio.gather(*tasks)
+                        await insert_address_time_into_db(addressTimeData=addressTimeData,
+                                                          channelId=channel_entity.channel_id, pool=pool)
+            finally:
+                await tg_pool.release(client)
 
-        tasks = [is_win_trade(address, time_, pool=pool) for address, time_ in tg_calls]
-        results = await asyncio.gather(*tasks)
+            query = "SELECT token_mint, timestamp FROM tg_calls WHERE channel_id = $1 and timestamp >= $2"
 
-        if len(results) != 0:
-            win_count = results.count(True)
-            win_rate = round((win_count / len(results) * 100), 2)
-            print(f"Channel {channel}'s win rate is {win_rate}%")
-        else:
-            win_rate = 0.0
+            # Fetch calls and calculate win_rate
+            tg_calls = await conn.fetch(query, channel_entity.channel_id, (int(time.time()) - (window * 24 * 60 * 60)))
 
-        upsert_query = """
-            INSERT INTO channel_stats (channel_id, win_rate, trades_count, last_updated, channel_name)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (channel_id)
-            DO UPDATE SET win_rate = EXCLUDED.win_rate, last_updated = EXCLUDED.last_updated, 
-            trades_count = EXCLUDED.trades_count, channel_name = EXCLUDED.channel_name;
-        """
+            tmts = [[record['token_mint'], record['timestamp']]for record in tg_calls]
 
-        try:
-            await conn.execute(upsert_query, channel_entity.channel_id, win_rate, len(results), int(time.time()),
-                               channel)
-            print(f"{channel}'s data updated")
-        except Exception as e:
-            print(f"Error {e} while upserting {channel}'s data to db")
-            raise e
+            sem = asyncio.BoundedSemaphore(10)
 
-        return {"win_rate": win_rate, "trade_count": len(results), "time_window": window,
-                "last_updated": int(time.time())}
+            async def limited_task(tmt):
+                async with sem:
+                    await token_prices_to_db(tmt[0], tmt[1], int(time.time()), pool=pool)
+
+            # Fetch token info up front and at once
+            tasks = [limited_task(tmt) for tmt in tmts]
+
+            # Execute tasks concurrently with a limit of 100 tasks at a time
+            await asyncio.gather(*tasks)
+
+            tasks = [is_win_trade(address, time_, pool=pool) for address, time_ in tg_calls]
+            results = await asyncio.gather(*tasks)
+
+            if len(results) != 0:
+                win_count = results.count(True)
+                win_rate = round((win_count / len(results) * 100), 2)
+            else:
+                win_rate = 0.0
+
+            upsert_query = """
+                INSERT INTO channel_stats (channel_id, win_rate, trades_count, last_updated, channel_name)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (channel_id)
+                DO UPDATE SET win_rate = EXCLUDED.win_rate, last_updated = EXCLUDED.last_updated, 
+                trades_count = EXCLUDED.trades_count, channel_name = EXCLUDED.channel_name;
+            """
+
+            try:
+                await conn.execute(upsert_query, channel_entity.channel_id, win_rate, len(results), int(time.time()),
+                                   channel)
+                print(f"{channel}'s data updated")
+            except Exception as e:
+                print(f"Error {e} while upserting {channel}'s data to db")
+                raise e
+
+            return {"win_rate": win_rate, "trade_count": len(results), "time_window": window,
+                    "last_updated": int(time.time())}
 
     finally:
-        await pool.release(conn)
-        await tg_pool.release(client)
-
+        if conn:
+            await pool.release(conn)
 
 if __name__ == "__main__":
     asyncio.run(vetChannel())

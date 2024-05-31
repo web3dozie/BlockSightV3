@@ -1,6 +1,8 @@
+import re
+
 from dbs.db_operations import get_tx_list
 from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, \
-    generate_trader_message, is_valid_wallet, fetch_wallet_leaderboard
+    generate_trader_message, is_valid_wallet, fetch_wallet_leaderboard, is_valid_channel
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel
@@ -81,21 +83,22 @@ async def vet_channel(tg_channel):
     window = request.args.get("window", default=30, type=int)
     fmt = request.args.get("format", default=False, type=bool)
 
-    if not tg_channel:
-        return "bad request", 400
+    if not is_valid_channel(tg_channel):
+        return "Invalid wallet", 400
 
-    print('VET STARTED')
+    match = re.search(r't\.me/([^/]+)', tg_channel)
+    tg_channel = match.group(1) if match else tg_channel
+
     try:
         retv = await vetChannel(tg_channel, window=window, pool=current_app.pool)
-        print('VET SUCCEEDED')
+
         if not fmt:
             return retv
 
         grades = determine_tg_grade(retv["trade_count"], retv["win_rate"], retv["time_window"])
         return {"stats": retv, "grades": grades}
     except Exception as e:
-        print('VET FAILED')
-        print(f"Error {e} while vetting channel {tg_channel}")
+        print(f"Error {e} while vetting channel: {tg_channel} via api")
         return make_response(jsonify({"status": "Internal Server Error", "message": str(e)}), 500)
 
 
@@ -168,7 +171,6 @@ async def handle_discord_redirect():
             " and verify to use the Telegram bot</p>")
 
 
-# we can use the same pool object man. I'll put it in web.
 @core_blueprint.route("/get-wallets-leaderboard/<window>")
 async def wallets_leaderboard(window):
     return await fetch_wallet_leaderboard(current_app.pool, window)

@@ -1,3 +1,4 @@
+import re
 import time, aiohttp, asyncio, base58, asyncpg, random
 
 from pprint import pprint
@@ -32,6 +33,24 @@ def is_valid_wallet(wallet_address: str) -> bool:
     except (ValueError, BadSignatureError):
         # If there's an error in decoding or the point is not on the curve
         return False
+
+
+def is_valid_channel(channel_name) -> bool:
+    """
+    Check if the given channel is valid.
+
+    Args:
+        channel_name (str): The wallet address to validate.
+
+    Returns:
+        bool: True if the wallet address is valid, False otherwise.
+    """
+
+    match = re.search(r't\.me/([^/]+)', channel_name)
+    if match:
+        channel_name = match.group(1)
+
+    return bool(re.match(r'^[a-zA-Z0-9_]+$', channel_name))
 
 
 def deduplicate_transactions(transactions: list) -> list:
