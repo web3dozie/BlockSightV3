@@ -1,14 +1,9 @@
-import datetime, asyncio, re, aiohttp, json, time, random
+import datetime, asyncio, re, aiohttp, json, time
 
-from pprint import pprint
-
-from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.types import InputPeerChannel, PeerChannel
-from telethon.tl.types import Channel
 
 from dbs.db_operations import get_id_from_channel
-from listeners.telegram_pools.tg_client_pooling import TelegramClientPool
+from telegramModule.tg_client_pooling import TelegramClientPool
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade, token_prices_to_db
 
@@ -204,57 +199,55 @@ async def vetChannel(channel='', window=30, tg_pool=None, pool=None):
             conn = await pool.acquire()
 
             try:
+                query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
+                last_db_tx_timestamp = await conn.fetchval(query, channel_id)
 
-                if True:
-                    query = "SELECT MAX(timestamp) FROM tg_calls WHERE channel_id = $1"
-                    last_db_tx_timestamp = await conn.fetchval(query, channel_id)
+                days_of_data_to_fetch = 0
 
-                    days_of_data_to_fetch = 0
+                if not last_db_tx_timestamp:
+                    time_since_last_update = 31 * 24 * 60 * 60
+                else:
+                    time_since_last_update = int(time.time()) - last_db_tx_timestamp
 
-                    if not last_db_tx_timestamp:
-                        time_since_last_update = 31 * 24 * 60 * 60
-                    else:
-                        time_since_last_update = int(time.time()) - last_db_tx_timestamp
+                if time_since_last_update > 24 * 60 * 60:  # seconds in one day
+                    days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
 
-                    if time_since_last_update > 24 * 60 * 60:  # seconds in one day
-                        days_of_data_to_fetch = round(time_since_last_update / (24 * 60 * 60))
+                offset_date = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
+                breakoff_point = offset_date - datetime.timedelta(days=days_of_data_to_fetch)
 
-                    offset_date = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
-                    breakoff_point = offset_date - datetime.timedelta(days=days_of_data_to_fetch)
+                messages = []
 
-                    messages = []
+                thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
 
-                    thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
+                # Fetch new messages
+                if days_of_data_to_fetch > 0:
 
-                    # Fetch new messages
-                    if days_of_data_to_fetch > 0:
+                    while True:
+                        old_len = len(messages)
+                        messages.extend(
+                            (await client(GetHistoryRequest(peer=channel_entity, limit=3000, offset_date=offset_date,
+                                                            offset_id=0, max_id=0, min_id=0, add_offset=0,
+                                                            hash=0))).messages)
 
-                        while True:
-                            old_len = len(messages)
-                            messages.extend(
-                                (await client(GetHistoryRequest(peer=channel_entity, limit=3000, offset_date=offset_date,
-                                                                offset_id=0, max_id=0, min_id=0, add_offset=0,
-                                                                hash=0))).messages)
+                        if len(messages) == old_len:
+                            break
+                        elif messages[-1].id == messages[-2].id:
+                            break
 
-                            if len(messages) == old_len:
-                                break
-                            elif messages[-1].id == messages[-2].id:
-                                break
+                        if messages[-1].date <= breakoff_point.replace(tzinfo=datetime.timezone.utc):
+                            break
+                        else:
+                            offset_date = messages[-1].date
 
-                            if messages[-1].date <= breakoff_point.replace(tzinfo=datetime.timezone.utc):
-                                break
-                            else:
-                                offset_date = messages[-1].date
+                    # print(f"{len(messages)} messages fetched.")
+                    # filter for text messages
+                    messages = [message for message in messages if message.message and message.message != "" and int(
+                        message.date.timestamp()) >= thirty_days_ago]
 
-                        # print(f"{len(messages)} messages fetched.")
-                        # filter for text messages
-                        messages = [message for message in messages if message.message and message.message != "" and int(
-                            message.date.timestamp()) >= thirty_days_ago]
+                    addressTimeData = await extract_address_time_data(messages)
 
-                        addressTimeData = await extract_address_time_data(messages)
-
-                        await insert_address_time_into_db(addressTimeData=addressTimeData,
-                                                          channelId=channel_entity.channel_id, pool=pool)
+                    await insert_address_time_into_db(addressTimeData=addressTimeData,
+                                                      channelId=channel_entity.channel_id, pool=pool)
             finally:
                 await tg_pool.release(client)
 
@@ -287,23 +280,48 @@ async def vetChannel(channel='', window=30, tg_pool=None, pool=None):
                 win_rate = 0.0
 
             upsert_query = """
-                INSERT INTO channel_stats (channel_id, win_rate, trades_count, last_updated, channel_name)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO channel_stats (channel_id, win_rate, trades_count, last_updated, channel_name, window_value)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (channel_id)
                 DO UPDATE SET win_rate = EXCLUDED.win_rate, last_updated = EXCLUDED.last_updated, 
-                trades_count = EXCLUDED.trades_count, channel_name = EXCLUDED.channel_name;
+                trades_count = EXCLUDED.trades_count, channel_name = EXCLUDED.channel_name, 
+                window_value = EXCLUDED.window_value;
             """
 
             try:
                 await conn.execute(upsert_query, channel_entity.channel_id, win_rate, len(results), int(time.time()),
-                                   channel)
+                                   channel, f"{window}d".zfill(3))
                 print(f"{channel}'s data updated")
             except Exception as e:
                 print(f"Error {e} while upserting {channel}'s data to db")
                 raise e
 
+            if window == 30:
+                await vetChannel(channel, window=7, pool=pool)
+            if window == 7:
+                await vetChannel(channel, window=3, pool=pool)
+
             return {"win_rate": win_rate, "trade_count": len(results), "time_window": window,
-                    "last_updated": int(time.time())}
+                    "last_updated": int(time.time()), "channel_name": channel, "channel_id": channel_id}
+
+        else:
+            conn = await pool.acquire()
+
+            query = f"SELECT * FROM channel_stats WHERE channel_id = $1 and window_value = $2"
+
+            row = await conn.fetchrow(query, channel_id, f"{window}d".zfill(3))
+
+            data = {}
+            if row:
+                # Map the row to a dictionary. asyncpg returns a Record which can be accessed by keys.
+                return {
+                    'channel_name': row['channel_name'],
+                    'channel_id': row['channel_id'],
+                    'trade_count': row['trades_count'],
+                    'win_rate': row['win_rate'],
+                    'last_updated': row['last_updated'],
+                    'time_window': row['window_value']
+                }
 
     finally:
         if conn:

@@ -1,11 +1,10 @@
 import asyncio
-import random
 
 import asyncpg
 
 
 from dbs.db_operations import pg_db_url
-from listeners.telegram_pools.tg_client_pooling import TelegramClientPool
+from telegramModule.tg_client_pooling import TelegramClientPool
 from vet_tg_channel import vetChannel
 
 with open('channels.txt') as file:

@@ -1,8 +1,8 @@
-import asyncpg, random, asyncio
+import asyncpg, asyncio
 
 from pprint import pprint
 from dbs.db_operations import pg_db_url
-from listeners.telegram_pools.tg_client_pooling import TelegramClientPool
+from telegramModule.tg_client_pooling import TelegramClientPool
 from telegramModule.vet_tg_channel import vetChannel
 
 api_hash = '841396171d9b111fa191dcdce768d223'

@@ -2,7 +2,7 @@ import re
 
 from dbs.db_operations import get_tx_list
 from walletVettingModule.wallet_vetting_utils import process_wallet, determine_wallet_grade, determine_tg_grade, \
-    generate_trader_message, is_valid_wallet, fetch_wallet_leaderboard, is_valid_channel
+    generate_trader_message, is_valid_wallet, fetch_wallet_leaderboard, is_valid_channel, fetch_tg_leaderboard
 from metadataAndSecurityModule.metadataUtils import get_data_from_helius
 from priceDataModule.price_utils import is_win_trade
 from telegramModule.vet_tg_channel import vetChannel
@@ -79,7 +79,6 @@ async def api_is_win_trade():
 
 @core_blueprint.route("/vet-tg-channel/<tg_channel>")
 async def vet_channel(tg_channel):
-    print('API STARTED')
     window = request.args.get("window", default=30, type=int)
     fmt = request.args.get("format", default=False, type=bool)
 
@@ -174,3 +173,8 @@ async def handle_discord_redirect():
 @core_blueprint.route("/get-wallets-leaderboard/<window>")
 async def wallets_leaderboard(window):
     return await fetch_wallet_leaderboard(current_app.pool, window)
+
+
+@core_blueprint.route("/get-tg-leaderboard/<window>")
+async def tg_leaderboard(window):
+    return await fetch_tg_leaderboard(current_app.pool, window)
