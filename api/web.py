@@ -10,6 +10,39 @@ from time import time
 
 web_blueprint = Blueprint('web', __name__)
 
+# require token
+# get id from token
+# check db to ensure id is present. if it isn't, redirect to discord
+# check if ref_code is null. if yes, redirect to ref code
+# repeat for wallet, email and user_ref code
+# if all checks pass, set is_signed_up to true and redirect to dashboard
+# return {is-signed-up: bool, redirect_to: string}
+@web_blueprint.route("/is-signed-up")
+@token_required
+async def handle_is_signed_up():
+    token = request.headers.get('Access-Token')
+    try:
+        decoded_token = jwt.decode(token, key=current_app.bs_config["blockSight_secret"], algorithms=["HS256"])
+    except:
+        return "Unauthorized", 401
+    
+    user_data = {}
+    try:
+        user_data = await get_user_data(username=decoded_token['user_name'])
+    except Exception as e:
+        current_app.logger.error(f"error {e} while getting user data in handle_is_signed_up")
+        return "Internal Server Error", 500
+
+    if not user_data['referral_used']:
+        return {"is-signed-up": False, "redirect-to": "submit-ref-code"}
+    elif not user_data['wallet']:
+        return {"is-signed-up": False, "redirect-to": "wallet"}
+    elif not user_data['email']:
+        return {"is-signed-up": False, "redirect-to": "email"}
+    else:
+        return {"is-signed-up": True, "redirect-to": "dashboard"}
+
+
 
 @web_blueprint.route("/discord-redirect")
 async def handle_web_discord_redirect():
