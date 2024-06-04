@@ -1,11 +1,9 @@
 import asyncpg, json
-import discord
 from aiohttp import ClientSession
 
 from dbs.db_operations import pg_db_url
-from listeners.telegram_pools.tg_client_pooling import TelegramClientPool
+from telegramModule.tg_client_pooling import TelegramClientPool
 from telegram import telegram_blueprint
-from usersModule.user_utils import BOT_TOKEN
 from web import web_blueprint
 from core import core_blueprint
 

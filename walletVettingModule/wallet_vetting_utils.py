@@ -1,3 +1,4 @@
+import re
 import time, aiohttp, asyncio, base58, asyncpg, random
 
 from pprint import pprint
@@ -32,6 +33,24 @@ def is_valid_wallet(wallet_address: str) -> bool:
     except (ValueError, BadSignatureError):
         # If there's an error in decoding or the point is not on the curve
         return False
+
+
+def is_valid_channel(channel_name) -> bool:
+    """
+    Check if the given channel is valid.
+
+    Args:
+        channel_name (str): The wallet address to validate.
+
+    Returns:
+        bool: True if the wallet address is valid, False otherwise.
+    """
+
+    match = re.search(r't\.me/([^/]+)', channel_name)
+    if match:
+        channel_name = match.group(1)
+
+    return bool(re.match(r'^[a-zA-Z0-9_]+$', channel_name))
 
 
 def deduplicate_transactions(transactions: list) -> list:
@@ -639,7 +658,7 @@ async def is_wallet_outdated(wallet_address: str, db_url: str = pg_db_url, windo
             await pool.release(conn)
 
 
-async def get_wallet_data(wallet_address: str, pool) -> dict:
+async def get_wallet_data(wallet_address: str, pool, window=30) -> dict:
     """
     Retrieve wallet data from the database.
 
@@ -654,8 +673,8 @@ async def get_wallet_data(wallet_address: str, pool) -> dict:
     conn = await pool.acquire()
     try:
         # Prepare the SELECT statement to find the wallet by address
-        query = "SELECT * FROM wallets WHERE wallet = $1"
-        row = await conn.fetchrow(query, wallet_address)
+        query = "SELECT * FROM wallets WHERE wallet = $1 AND window_value = $2"
+        row = await conn.fetchrow(query, wallet_address, f"{window}d".zfill(3))
         if row:
             # Map the row to a dictionary. asyncpg returns a Record which can be accessed by keys.
             data = {
@@ -805,7 +824,7 @@ async def process_wallet(wallet_address: str, window: int = 30, pool=None) -> di
         wallet_data = wallet_summary
 
     else:
-        wallet_data = await get_wallet_data(wallet_address, pool=pool)
+        wallet_data = await get_wallet_data(wallet_address, window=window, pool=pool)
 
     if window == 30:
         await process_wallet(wallet_address, window=7, pool=pool)
@@ -1013,9 +1032,10 @@ async def fetch_wallet_leaderboard(pool, window='30d'):
     if window not in ['30d', '03d', '07d']:
         window = '30d'
 
+    min_trades = 5 if window == '30d' else 2
     conn = await pool.acquire()
 
-    query = ("SELECT * FROM wallets WHERE trades >= 5 AND window_value = $1 AND avg_size >= 10 "
+    query = (f"SELECT * FROM wallets WHERE trades >= {min_trades} AND window_value = $1 AND avg_size >= 10 "
              "ORDER BY win_rate")
     window_int = int(window[:-1])
 
@@ -1035,6 +1055,36 @@ async def fetch_wallet_leaderboard(pool, window='30d'):
         graded_list.append(wallet)
 
     await pool.release(conn)
+
+    return graded_list
+
+
+async def fetch_tg_leaderboard(pool, window='30d'):
+
+    if window not in ['30d', '03d', '07d']:
+        window = '30d'
+
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=pg_db_url)
+
+    min_calls = 4 if window == '30d' else 1
+
+    query = f"SELECT * FROM channel_stats WHERE trades_count >= {min_calls} AND window_value = $1 ORDER BY win_rate"
+
+    window_int = int(window[:-1])
+
+    rows = await conn.fetch(query, window)
+
+    graded_list = []
+    for record in rows:
+        channel = dict(record)
+
+        channel['win_rate'] = float(channel['win_rate'])
+
+        # Calculate channel grades and update the channel dictionary directly
+        channel.update(determine_tg_grade(channel['trades_count'], channel['win_rate'], window=window_int))
+        graded_list.append(channel)
+
+    await pool.release(conn) if pool else await conn.close()
 
     return graded_list
 

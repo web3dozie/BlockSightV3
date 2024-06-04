@@ -293,6 +293,27 @@ async def useful_wallets(pool=None, db_url=pg_db_url, window=30):
     return list(set(smart_wallets))
 
 
+async def get_id_from_channel(channel_name, pool=None, db_url=pg_db_url):
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
+
+    try:
+        query = "SELECT channel_id FROM channel_stats WHERE channel_name = $1"
+
+        channel_id = await conn.fetchval(query, channel_name)
+
+        return channel_id
+
+    except Exception as e:
+        print(f'get_id_from_channel() failed: {e}')
+        raise e
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
+
+
 async def useful_channels(pool=None, db_url=pg_db_url, window=30):
     smart_channels = []
 
