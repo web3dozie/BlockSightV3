@@ -3,19 +3,13 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 # from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
 from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data, create_referral_code
-from walletVettingModule.wallet_vetting_utils import is_valid_wallet
-from core import analyse_wallet, fetch_wallet_leaderboard
-import json, aiohttp, jwt
+from walletVettingModule.wallet_vetting_utils import is_valid_wallet, fetch_tg_leaderboard, fetch_wallet_leaderboard
+from core import analyse_wallet
+import json, aiohttp, jwt, math
 from time import time
 
 web_blueprint = Blueprint('web', __name__)
 
-# require token
-# get id from token
-# check db to ensure id is present. if it isn't, redirect to discord
-# check if ref_code is null. if yes, redirect to ref code
-# repeat for wallet, email and user_ref code
-# if all checks pass, set is_signed_up to true and redirect to dashboard
 # return {is-signed-up: bool, redirect_to: string}
 @web_blueprint.route("/is-signed-up")
 @token_required
@@ -41,8 +35,6 @@ async def handle_is_signed_up():
         return {"is-signed-up": False, "redirect-to": "email"}
     else:
         return {"is-signed-up": True, "redirect-to": "dashboard"}
-
-
 
 @web_blueprint.route("/discord-redirect")
 async def handle_web_discord_redirect():
@@ -172,7 +164,6 @@ async def web_update_user_data():
         current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
         return f"Internal Server Error while updating user data", 500
 
-
 @web_blueprint.route("/create-ref-code")
 @token_required
 async def create_ref_code():
@@ -196,12 +187,10 @@ async def create_ref_code():
         current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
         return f"Internal Server Error while updating user data", 500
 
-
 @web_blueprint.route("/analyse-wallet/<wallet_address>")
 @token_required
 async def web_analyse_wallet(wallet_address):
     return await analyse_wallet(wallet_address)
-
 
 @web_blueprint.route("/get-wallets-leaderboard")
 @token_required
@@ -216,3 +205,29 @@ async def web_wallets_leaderboard():
     except Exception as e:
         current_app.logger.error(e, stack_info=True)
         return f"Internal Server Error while fetching wallet leaderboard", 500
+
+@web_blueprint.route("/get-tg-leaderboard/<window>")
+@token_required
+async def tg_leaderboard(window):
+    page = request.args.get("page", default=1, type=int)
+    total_pages = 15
+
+    ld_data = await fetch_tg_leaderboard(current_app.pool, window)
+    
+    rows_per_page = math.floor(len(ld_data) / total_pages)
+
+    page_data = ld_data[rows_per_page* page-1 : rows_per_page*page] 
+
+    prev = ""
+    if page > 1:
+        prev = f"/get-tg-leaderboard/{window}?page={page-1}"
+    else:
+        prev = "None"
+    
+    next = ""
+    if page < total_pages:
+        next = f"/get-tg-leaderboard/{window}?page={page+1}"
+    else:
+        next = "None"
+
+    return {"page-data": page_data, "prev": prev, "next": next}

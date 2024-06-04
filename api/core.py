@@ -173,8 +173,3 @@ async def handle_discord_redirect():
 @core_blueprint.route("/get-wallets-leaderboard/<window>")
 async def wallets_leaderboard(window):
     return await fetch_wallet_leaderboard(current_app.pool, window)
-
-
-@core_blueprint.route("/get-tg-leaderboard/<window>")
-async def tg_leaderboard(window):
-    return await fetch_tg_leaderboard(current_app.pool, window)
