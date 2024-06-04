@@ -228,17 +228,17 @@ def determine_tg_grade(trades: int, win_rate: float, window=30) -> dict:
 
     profit_per_bet = 2.5
     win_prob = win_rate / 100
-    pnl = profit_per_bet * trades * win_prob - 1 * trades
+    pnl = (profit_per_bet * trades * win_prob - 1 * trades)
 
-    if window == 30:
-        trades_thresholds = {'S': 30, 'A': 25, 'B': 20, 'C': 15, 'F': 10}
-        pnl_thresholds = {'S': 15, 'A': 10, 'B': 5, 'C': 0, 'F': 0}
-    elif window == 7:
-        trades_thresholds = {'S': 30 / 4, 'A': 25 / 4, 'B': 20 / 4, 'C': 15 / 4, 'F': 10 / 4}
-        pnl_thresholds = {'S': 15 / 4, 'A': 10 / 4, 'B': 5 / 4, 'C': 0 / 4, 'F': 0 / 4}
-    else:
-        trades_thresholds = {'S': 30 / 10, 'A': 25 / 10, 'B': 20 / 10, 'C': 15 / 10, 'F': 10 / 10}
-        pnl_thresholds = {'S': 15 / 10, 'A': 10 / 10, 'B': 5 / 10, 'C': -1 / 10, 'F': -5 / 10}
+    trades_thresholds = {'S': 30, 'A': 25, 'B': 20, 'C': 15, 'F': 10}
+    pnl_thresholds = {'S': 10, 'A': 7, 'B': 5, 'C': 3, 'F': 1}
+
+    if window == 7:
+        trades_thresholds = {key: value // 4 for key, value in trades_thresholds.items()}
+        pnl_thresholds = {key: value // 4 for key, value in pnl_thresholds.items()}
+    elif window == 3:
+        trades_thresholds = {key: value // 10 for key, value in trades_thresholds.items()}
+        pnl_thresholds = {key: value // 10 for key, value in pnl_thresholds.items()}
 
     # Helper function to determine points based on value and thresholds
     def get_points(value, thresholds):
@@ -323,7 +323,7 @@ def determine_tg_grade(trades: int, win_rate: float, window=30) -> dict:
         "win_rate_grade": get_tier(win_rate_points // 2),  # Undo doubling for accurate tier
         "trades_grade": get_tier(trades_points),
         "pnl_grade": get_tier(pnl_points),
-        "pnl": pnl
+        "pnl": round(pnl, 2)
     }
 
 
@@ -1059,10 +1059,13 @@ async def fetch_wallet_leaderboard(pool, window='30d'):
     return graded_list
 
 
-async def fetch_tg_leaderboard(pool, window='30d'):
+async def fetch_tg_leaderboard(pool, window='30d', sort_by='win_rate', direction='desc'):
 
     if window not in ['30d', '03d', '07d']:
         window = '30d'
+
+    if sort_by not in ['win_rate', 'overall_grade', 'pnl', 'trades_count']:
+        sort_by = 'win_rate'
 
     conn = await pool.acquire() if pool else await asyncpg.connect(dsn=pg_db_url)
 
@@ -1085,6 +1088,12 @@ async def fetch_tg_leaderboard(pool, window='30d'):
         graded_list.append(channel)
 
     await pool.release(conn) if pool else await conn.close()
+
+    # Sorting step
+    if direction == 'desc':
+        graded_list = sorted(graded_list, key=lambda d: d[sort_by], reverse=True)
+    else:
+        graded_list = sorted(graded_list, key=lambda d: d[sort_by])
 
     return graded_list
 

@@ -10,6 +10,7 @@ from time import time
 
 web_blueprint = Blueprint('web', __name__)
 
+
 # return {is-signed-up: bool, redirect_to: string}
 @web_blueprint.route("/is-signed-up")
 @token_required
@@ -164,6 +165,7 @@ async def web_update_user_data():
         current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
         return f"Internal Server Error while updating user data", 500
 
+
 @web_blueprint.route("/create-ref-code")
 @token_required
 async def create_ref_code():
@@ -187,10 +189,12 @@ async def create_ref_code():
         current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
         return f"Internal Server Error while updating user data", 500
 
+
 @web_blueprint.route("/analyse-wallet/<wallet_address>")
 @token_required
 async def web_analyse_wallet(wallet_address):
     return await analyse_wallet(wallet_address)
+
 
 @web_blueprint.route("/get-wallets-leaderboard")
 @token_required
@@ -206,25 +210,27 @@ async def web_wallets_leaderboard():
         current_app.logger.error(e, stack_info=True)
         return f"Internal Server Error while fetching wallet leaderboard", 500
 
+
 @web_blueprint.route("/get-tg-leaderboard/<window>")
 @token_required
 async def tg_leaderboard(window):
     page = request.args.get("page", default=1, type=int)
+    sort_by = request.args.get("sort", type=str, default='win_rate')
+    direction = request.args.get("direction", type=str, default='desc')
+
     total_pages = 15
 
-    ld_data = await fetch_tg_leaderboard(current_app.pool, window)
+    ld_data = await fetch_tg_leaderboard(current_app.pool, window, sort_by=sort_by, direction=direction)
     
     rows_per_page = math.floor(len(ld_data) / total_pages)
 
-    page_data = ld_data[rows_per_page* page-1 : rows_per_page*page] 
+    page_data = ld_data[rows_per_page * (page-1) : rows_per_page * page]
 
-    prev = ""
     if page > 1:
         prev = f"/get-tg-leaderboard/{window}?page={page-1}"
     else:
         prev = "None"
-    
-    next = ""
+
     if page < total_pages:
         next = f"/get-tg-leaderboard/{window}?page={page+1}"
     else:
