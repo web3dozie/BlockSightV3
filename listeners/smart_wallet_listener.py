@@ -63,7 +63,7 @@ async def wallet_task(wallet: str, listener):
     semaphore = asyncio.Semaphore(listener.concurrent_tokens_per_wallet)
     mints = {mint for tx in txs for mint in (tx['in_mint'], tx['out_mint'])}
 
-    tasks = [update_txs_db(txs, pool=listener.pool)] + [get_metadata(mint, regular_use=False, session=listener.session, pool=listener.pool) for mint in mints]
+    tasks = [update_txs_db(txs, pool=listener.pool, is_useful_wallet=True)] + [get_metadata(mint, regular_use=False, session=listener.session, pool=listener.pool) for mint in mints]
 
     limited_tasks = [asyncio.create_task(handle_semaphore(task, semaphore)) for task in tasks]
     await asyncio.gather(*limited_tasks)
@@ -71,7 +71,7 @@ async def wallet_task(wallet: str, listener):
     return wallet, wallet_task
 
 
-async def maintain_txs(window=30):
+async def maintain_txs():
     """
     This function creates a scheduler and makes sure each
     wallet's txs gets fetched exactly once every n minutes.
@@ -83,7 +83,7 @@ async def maintain_txs(window=30):
 
     wallet_list = await useful_wallets(listener.pool)
 
-    pprint(wallet_list)
+    # pprint(wallet_list)
     print(len(wallet_list))
 
     for wallet in wallet_list:

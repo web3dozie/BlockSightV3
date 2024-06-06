@@ -1,7 +1,7 @@
-import time
 from pprint import pprint
+from decimal import Decimal
 
-import asyncpg, backoff
+import asyncpg, backoff, time
 
 from walletVettingModule.wallet_vetting_utils import determine_wallet_grade, determine_tg_grade
 
@@ -160,7 +160,6 @@ async def mint_exists(token_mint, pool=None, table_name='metadata'):
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=5)
 async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
-
     new_conn = not bool(pool)
     conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
@@ -191,7 +190,6 @@ async def add_metadata_to_db(data, db_url=pg_db_url, pool=None):
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=8)
 async def get_metadata_from_db(token_mint, db_url=pg_db_url, pool=None):
-
     new_conn = not bool(pool)
     conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
@@ -235,7 +233,7 @@ async def get_metadata_from_db(token_mint, db_url=pg_db_url, pool=None):
 
 
 @backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
-async def update_txs_db(txs_data, db_url=pg_db_url, pool=None):
+async def update_txs_db(txs_data, db_url=pg_db_url, pool=None, is_useful_wallet=False):
     insert_sql = '''
         INSERT INTO txs (txid, wallet, in_mint, in_amt, out_mint, out_amt, timestamp) 
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -245,6 +243,13 @@ async def update_txs_db(txs_data, db_url=pg_db_url, pool=None):
     conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
     try:
+        if is_useful_wallet:
+            for tx in txs_data:
+                if int(time.time()) - tx['timestamp'] <= 300:
+                    if tx['out_mint'] not in ['So11111111111111111111111111111111111111112',
+                                              'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v']:
+                        await insert_into_snapshot_queue(mint=tx['out_mint'], timestamp=tx['timestamp'],
+                                                         source='smart_wallet')
         async with conn.transaction():
             txs_tuples = [
                 (tx['tx_id'], tx['wallet'], tx['in_mint'], tx['in_amt'], tx['out_mint'], tx['out_amt'],
@@ -276,10 +281,9 @@ async def useful_wallets(pool=None, db_url=pg_db_url, window=30):
         for wallet in rows:
             grades = determine_wallet_grade(
                 wallet['trades'], wallet['win_rate'], wallet['avg_size'], wallet['pnl']
-            , window=window)
+                , window=window)
             if grades.get('overall_grade') in ['SS', 'S', 'A+']:
                 smart_wallets.append(wallet['wallet'])
-
 
     except Exception as e:
         print(f'useful_wallets() failed: {e}')
@@ -351,15 +355,55 @@ async def update_ath_after(max_time, db_url=pg_db_url, pool=None):
     pass
 
 
-@backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
 async def insert_snapshot_into_db(data, db_url=pg_db_url, pool=None):
-    """
-    TODO
-    very heavy concurrency needs
-    add a snapshot to the db, based on the staging table, removes a mint from the staging table if it sees a flag
-    """
+    def convert_decimals_to_floats(data_dict):
+        for key, value in data_dict.items():
+            if isinstance(value, Decimal):
+                data_dict[key] = float(value)
+        return data_dict
 
-    pass
+    data = convert_decimals_to_floats(data)
+
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
+
+    try:
+        query = """
+        INSERT INTO snapshots (
+            airdropped, bundled, buys_1h, buys_5m, buys_6h, call_time, fdv, liquidity,
+            lp_age, lp_safe, mint_safe, num_holders, price, price_change_1h, price_change_5m,
+            price_change_6h, sells_1h, sells_5m, sells_6h, smart_buys_1h, smart_buys_5m,
+            smart_buys_6h, smart_netflows_1h, smart_netflows_5m, smart_netflows_6h,
+            smart_sells_1h, smart_sells_5m, smart_sells_6h, smart_tg_calls_1h,
+            smart_tg_calls_5m, smart_tg_calls_6h, smart_volume_1h, smart_volume_5m,
+            smart_volume_6h, socials, starting_liq, starting_mc, token_mint, top_10, top_20,
+            volume_1h, volume_5m, volume_6h
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
+            $35, $36, $37, $38, $39, $40, $41, $42, $43
+        )
+        """
+
+        await conn.execute(query,
+                           data['airdropped'], data['bundled'], data['buys_1h'], data['buys_5m'], data['buys_6h'],
+                           data['call_time'], data['fdv'], data['liquidity'], data['lp_age'], data['lp_safe'],
+                           data['mint_safe'], data['num_holders'], data['price'], data['price_change_1h'],
+                           data['price_change_5m'], data['price_change_6h'], data['sells_1h'], data['sells_5m'],
+                           data['sells_6h'], data['smart_buys_1h'], data['smart_buys_5m'], data['smart_buys_6h'],
+                           data['smart_netflows_1h'], data['smart_netflows_5m'], data['smart_netflows_6h'],
+                           data['smart_sells_1h'], data['smart_sells_5m'], data['smart_sells_6h'],
+                           data['smart_tg_calls_1h'], data['smart_tg_calls_5m'], data['smart_tg_calls_6h'],
+                           data['smart_volume_1h'], data['smart_volume_5m'], data['smart_volume_6h'],
+                           data['socials'], data['starting_liq'], data['starting_mc'], data['token_mint'],
+                           data['top_10'], data['top_20'], data['volume_1h'], data['volume_5m'], data['volume_6h']
+                           )
+
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
 
 
 async def get_tx_list(wallet, pool=None):
@@ -372,6 +416,53 @@ async def get_tx_list(wallet, pool=None):
         tx_list = [{column: value for column, value in zip(row.keys(), row.values())} for row in rows]
 
         return tx_list
+
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
+
+
+@backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
+async def insert_into_snapshot_queue(mint, timestamp, source, db_url=pg_db_url, pool=None):
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
+
+    try:
+        # Insert or update the record
+        upsert_query = """
+        INSERT INTO snapshot_queue (token_mint, timestamp, source)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (token_mint)
+        DO UPDATE SET timestamp = EXCLUDED.timestamp, source = EXCLUDED.source
+        """
+
+        await conn.execute(upsert_query, mint, timestamp, source)
+
+        # Delete rows with timestamps older than 2 hours
+        delete_query = """
+        DELETE FROM snapshot_queue
+        WHERE timestamp < $1
+        """
+        cutoff_time = int(time.time()) - 2 * 3600  # 2 hours in seconds
+        await conn.execute(delete_query, cutoff_time)
+
+    finally:
+        if new_conn:
+            await conn.close()
+        else:
+            await pool.release(conn)
+
+
+@backoff.on_exception(backoff.expo, asyncpg.PostgresError, max_tries=12)
+async def delete_snapshot_from_queue(token_mint, db_url=pg_db_url, pool=None):
+    new_conn = not bool(pool)
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
+
+    try:
+        query = "DELETE FROM snapshot_queue WHERE token_mint = $1"
+        await conn.execute(query, token_mint)
 
     finally:
         if new_conn:

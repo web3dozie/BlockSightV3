@@ -9,9 +9,7 @@ async def main():
     wallet_listener_task = asyncio.create_task(maintain_txs())
     tg_listener_task = asyncio.create_task(tg_listener())
 
-    await asyncio.gather(wallet_listener_task, tg_listener_task)
+    await asyncio.gather(tg_listener_task, wallet_listener_task)
 
 
 asyncio.run(main())
-
-

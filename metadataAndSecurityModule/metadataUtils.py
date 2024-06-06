@@ -335,6 +335,7 @@ async def parse_tx_list(tx_list, api_key=helius_api_key, session=None):
 
 
 async def get_data_from_helius(token_mint, api_key=helius_api_key, session=None):
+
     url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
     headers = {'Content-Type': 'application/json'}
     payload = {
@@ -377,7 +378,9 @@ async def get_data_from_helius(token_mint, api_key=helius_api_key, session=None)
 
 async def retrieve_metadata(token_mint: str, session=None, client=None):
     new_session = not bool(session)
+
     session = session or aiohttp.ClientSession()
+
 
     try:
         result = await get_data_from_helius(token_mint, session=session)
@@ -406,7 +409,13 @@ async def retrieve_metadata(token_mint: str, session=None, client=None):
         decimals = result['token_info']['decimals']
         supply = round(result['token_info']['supply'] / (10 ** decimals), 2)
 
-        deployer = result['authorities'][0]['address']
+        try:
+            deployer = result['authorities'][0]['address']
+        except IndexError:
+            try:
+                deployer = result['mint_extensions']['metadata_pointer']['authority']
+            except Exception as e:
+                raise e
 
         max_retries = 1
         attempts = 0

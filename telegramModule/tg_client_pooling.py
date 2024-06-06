@@ -7,6 +7,7 @@ tg_hash = '841396171d9b111fa191dcdce768d223'
 
 
 class TelegramClientPool:
+    # TODO Fix hard coded values
     def __init__(self, api_id, api_hash, session_prefix='C:\\Users\\Dozie\\Desktop\\Code Projects\\BlockSightV3\\tg_session_files\\richkele', client_count=10):
         self.__clients = []
         self.__lock = Lock()
@@ -22,7 +23,7 @@ class TelegramClientPool:
                 if client not in self.__in_use:
                     self.__in_use.add(client)
                     await client.start()
-                    # await client.get_dialogs()
+                    # await client.get_dialogs() # Issue with doing this
                     return client
             return None  # All clients are in use
 

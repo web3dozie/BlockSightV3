@@ -77,6 +77,8 @@ async def extract_address_time_data(messages) -> dict:
                 if dexID not in dexIDs:
                     dexIDs.append(dexID)
 
+        # print(message.message)
+
         matches = re.findall(r'[1-9A-HJ-NP-Za-km-z]{32,44}', message.message)
         if matches:
             for match in matches:
@@ -138,7 +140,7 @@ async def extract_address_time_data(messages) -> dict:
     tasks = [verify_token_mint(address, source='dxs') for address in addressTimeData.keys()]
     await asyncio.gather(*tasks)
 
-    print(f"{len(addressTimeData)} valid trades found.")
+    # print(f"{len(addressTimeData)} valid trades found.")
 
     return verified_mints
 

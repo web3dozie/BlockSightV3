@@ -7,7 +7,7 @@ from solana.exceptions import SolanaRpcException
 from solana.rpc.async_api import AsyncClient
 
 
-from dbs.db_operations import useful_wallets, pg_db_url, useful_channels
+from dbs.db_operations import useful_wallets, pg_db_url, useful_channels, delete_snapshot_from_queue
 from metadataAndSecurityModule.metadataUtils import rpc_url, get_data_from_helius, get_metadata, get_num_holders
 
 
@@ -281,7 +281,7 @@ async def get_smart_tg_calls_wrapper(token_mint, pool):
     smart_channels = await useful_channels(pool=pool)
     smart_channels = [int(str(value)[3:]) for d in smart_channels for value in d]
 
-    print(smart_channels)
+    # print(smart_channels)
 
     # Collect results concurrently
     smart_5m, smart_1h, smart_6h = await asyncio.gather(
@@ -294,11 +294,24 @@ async def get_smart_tg_calls_wrapper(token_mint, pool):
     return {**smart_5m, **smart_1h, **smart_6h}
 
 
-async def take_snapshot(token_mint, pool=None, sol_price=150, session=None, client=None):
+async def take_snapshot(token_mint, pool=None, sol_price=173, session=None, client=None):
     dxs, met_sec, smt_wlt, smt_tg = await asyncio.gather(get_full_dxs_data(token_mint, session=session),
                                                          get_metadata_security_for_snapshot(token_mint, pool=pool, session=session, sol_client=client),
                                                          get_smart_wallets_data_wrapper(token_mint, pool=pool,
                                                                                         sol_price=sol_price),
                                                          get_smart_tg_calls_wrapper(token_mint, pool))
 
-    return {**dxs, **met_sec, **smt_wlt, **smt_tg, **{'token_mint': token_mint, 'call_time': int(time.time())}}
+    sd = {**dxs, **met_sec, **smt_wlt, **smt_tg, **{'token_mint': token_mint, 'call_time': int(time.time())}}
+
+    conditions = [
+        sd['fdv'] < 1500,
+        sd['liquidity'] < 1500,
+        sd['price_change_5m'] < -98,
+        sd['price_change_1h'] < -98
+    ]
+
+    # Check if any exit condition is met
+    if any(conditions):
+        await delete_snapshot_from_queue(token_mint)
+
+    return sd
