@@ -2,6 +2,7 @@ import asyncio, aiohttp, time, ast
 
 from pprint import pprint
 
+from solana.rpc.core import RPCException
 from solders.pubkey import Pubkey
 from solana.exceptions import SolanaRpcException
 from solana.rpc.async_api import AsyncClient
@@ -90,16 +91,19 @@ async def get_full_dxs_data(token_mint, session=None):
 async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None, sol_client=None):
     # ------ Initialize data ----- #
 
-    async def retrieve_largest_accounts(async_client):
+    async def retrieve_largest_accounts(async_client, max_attempts=5):
         async_client = async_client or AsyncClient(rpc_url)
         mint_pubkey = Pubkey.from_string(token_mint)
 
         attempts = 0
-        while True:
+        x = {}
+
+        while attempts < max_attempts:
             try:
+
                 x = await async_client.get_token_largest_accounts(mint_pubkey)
                 break
-            except SolanaRpcException:
+            except (SolanaRpcException, RPCException):
                 print(f' Error when getting largest accounts for {token_mint}. Retrying in one second')
                 await asyncio.sleep(1)
                 attempts += 1
@@ -117,7 +121,10 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
         token_data_future, token_metadata_future, holders_future, largest_accounts_future
     )
 
-    holders_data = [d['uiAmount'] for d in ast.literal_eval(largest_accounts.to_json())['result']['value']]
+    try:
+        holders_data = [d['uiAmount'] for d in ast.literal_eval(largest_accounts.to_json())['result']['value']]
+    except AttributeError:
+        holders_data = []
 
     # ------                         ----- #
 
@@ -147,6 +154,7 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
     is_mintable = bool(token_data.get('token_info').get('mint_authority'))
     lp_burnt_percentage = None if lp_current_supply == 1 and lp_initial_supply == 2 else int(
         100 - (lp_current_supply / lp_initial_supply * 100))
+
     top_10 = safe_round((sum(holders_data[1:10]) / token_supply * 100) if token_supply else 0)
     top_20 = safe_round((sum(holders_data[1:21]) / token_supply * 100) if token_supply else 0)
 
@@ -303,12 +311,14 @@ async def take_snapshot(token_mint, pool=None, sol_price=173, session=None, clie
 
     sd = {**dxs, **met_sec, **smt_wlt, **smt_tg, **{'token_mint': token_mint, 'call_time': int(time.time())}}
 
-    conditions = [
-        sd['fdv'] < 1500,
-        sd['liquidity'] < 1500,
-        sd['price_change_5m'] < -98,
-        sd['price_change_1h'] < -98
-    ]
+    try:
+        conditions = [
+            sd['fdv'] < 1500,
+            sd['liquidity'] < 1500,
+            sd['price_change_5m'] < -98,
+            sd['price_change_1h'] < -98
+        ]
+    except KeyError: return sd
 
     # Check if any exit condition is met
     if any(conditions):

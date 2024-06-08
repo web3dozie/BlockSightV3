@@ -384,8 +384,8 @@ async def insert_snapshot_into_db(data, db_url=pg_db_url, pool=None):
             $35, $36, $37, $38, $39, $40, $41, $42, $43
         )
         """
-
-        await conn.execute(query,
+        try:
+            await conn.execute(query,
                            data['airdropped'], data['bundled'], data['buys_1h'], data['buys_5m'], data['buys_6h'],
                            data['call_time'], data['fdv'], data['liquidity'], data['lp_age'], data['lp_safe'],
                            data['mint_safe'], data['num_holders'], data['price'], data['price_change_1h'],
@@ -398,6 +398,8 @@ async def insert_snapshot_into_db(data, db_url=pg_db_url, pool=None):
                            data['socials'], data['starting_liq'], data['starting_mc'], data['token_mint'],
                            data['top_10'], data['top_20'], data['volume_1h'], data['volume_5m'], data['volume_6h']
                            )
+        except KeyError:
+            return
 
     finally:
         if new_conn:
