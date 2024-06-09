@@ -46,7 +46,6 @@ async def listen_for_calls(pool=None):
         @client.on(events.NewMessage(chats=tg_ids, incoming=True))
         async def handle_new_message(event):
             source_channel = await event.message.get_sender()
-            print(f'Received a new message from: {source_channel.title} at {datetime.datetime.now().strftime("%I:%M %p")}')
 
             messages = [event.message]
             addressTimeData = await extract_address_time_data(messages)
@@ -54,7 +53,7 @@ async def listen_for_calls(pool=None):
             # print(f'ADDRESS TIME DATA ----> {addressTimeData}')
 
             if len(addressTimeData.keys()) > 0:
-                pprint(addressTimeData)
+                print(f'Received a new message from: {source_channel.title} at {datetime.datetime.now().strftime("%I:%M %p")}: {addressTimeData}')
                 await insert_address_time_into_db(addressTimeData=addressTimeData,
                                                   channelId=source_channel.id, pool=pool)
 

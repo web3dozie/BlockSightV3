@@ -92,11 +92,16 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
     # ------ Initialize data ----- #
 
     async def retrieve_largest_accounts(async_client, max_attempts=5):
+        bad_list = ['kinXdEcpDQeHPEuQnqmUgtYykqKGVFq6CeVX5iAHJq6', 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+                    'BLZEEuZUBVqFhj8adcCFPJvPVCiCyVmh3hkJMrU8KuJA']
+        x = {}
+
+        if token_mint in bad_list:
+            return x
         async_client = async_client or AsyncClient(rpc_url)
         mint_pubkey = Pubkey.from_string(token_mint)
 
         attempts = 0
-        x = {}
 
         while attempts < max_attempts:
             try:
@@ -152,8 +157,10 @@ async def get_metadata_security_for_snapshot(token_mint, pool=None, session=None
 
     # ------ Data to return ----- #
     is_mintable = bool(token_data.get('token_info').get('mint_authority'))
-    lp_burnt_percentage = None if lp_current_supply == 1 and lp_initial_supply == 2 else int(
-        100 - (lp_current_supply / lp_initial_supply * 100))
+    try:
+        lp_burnt_percentage = None if lp_current_supply == 1 and lp_initial_supply == 2 else int(100 - (lp_current_supply / lp_initial_supply * 100))
+    except TypeError:
+        lp_burnt_percentage = None
 
     top_10 = safe_round((sum(holders_data[1:10]) / token_supply * 100) if token_supply else 0)
     top_20 = safe_round((sum(holders_data[1:21]) / token_supply * 100) if token_supply else 0)
@@ -302,7 +309,11 @@ async def get_smart_tg_calls_wrapper(token_mint, pool):
     return {**smart_5m, **smart_1h, **smart_6h}
 
 
-async def take_snapshot(token_mint, pool=None, sol_price=173, session=None, client=None):
+async def take_snapshot(token_mint, pool=None, sol_price=160, session=None, client=None):
+
+    new_session = not bool(session)
+    session = session or aiohttp.ClientSession()
+
     dxs, met_sec, smt_wlt, smt_tg = await asyncio.gather(get_full_dxs_data(token_mint, session=session),
                                                          get_metadata_security_for_snapshot(token_mint, pool=pool, session=session, sol_client=client),
                                                          get_smart_wallets_data_wrapper(token_mint, pool=pool,
@@ -319,6 +330,10 @@ async def take_snapshot(token_mint, pool=None, sol_price=173, session=None, clie
             sd['price_change_1h'] < -98
         ]
     except KeyError: return sd
+
+    finally:
+        if new_session:
+            await session.close()
 
     # Check if any exit condition is met
     if any(conditions):

@@ -9,7 +9,7 @@ async def take_all_snapshots(db_url=pg_db_url, pool=None, session=None, client=N
     client = client or AsyncClient(rpc_url)
     conn = await pool.acquire() if pool else await asyncpg.connect(dsn=db_url)
 
-    sem = asyncio.Semaphore(15)
+    sem = asyncio.Semaphore(20)
 
     async def snapshot_with_semaphore(mint):
         async with sem:
@@ -28,7 +28,7 @@ async def take_all_snapshots(db_url=pg_db_url, pool=None, session=None, client=N
         # Run the tasks concurrently with a limit of 15 at a time
         await asyncio.gather(*tasks)
 
-        await asyncio.sleep(45)
+        await asyncio.sleep(20)
 
 
 async def main():

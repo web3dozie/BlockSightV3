@@ -3,6 +3,8 @@ import random, re, time, aiohttp, asyncio, json
 from pprint import pprint
 
 import asyncpg
+from aiohttp import ServerDisconnectedError
+from anyio import EndOfStream
 from solana.exceptions import SolanaRpcException
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment
@@ -47,6 +49,13 @@ async def get_sol_price(token_mint='So11111111111111111111111111111111111111112'
 
 
 async def get_wallet_txs(wallet: str, api_key=helius_api_key, start_days_ago=30, tx_type='', session=None):
+
+    bad_wallets = ['AqH29mZfQFgRpfwaPoTMWSKJ5kqauoc1FwVBRksZyQrt', 'BCHa4mZJqFrxm7etpPa3j7JWa5XFpaSUGt76eMrqE8hp',
+                   '5nWmZArzFbpXmCuWr7hpivJ6isMVu5eqahpQiaa4aJ7T', 'AyuBHhnxbMzBm5e89tC3RwFjRTP5A5o3RjG5wMFJr23c',
+                   '11111111111111111111111111111111']
+    if wallet in bad_wallets:
+        return []
+
     base_url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}"
     if tx_type != '':
         base_url += f'&type={tx_type}'
@@ -216,7 +225,7 @@ async def get_target_slot_timestamp(slot_number, client=None):
                         slot_timestamp = await client.get_block_time(slot_number + delta)
                         if slot_timestamp is not None:
                             return slot_timestamp.value  # Return on the first successful fetch
-                    except RPCException:
+                    except (RPCException, EndOfStream):
                         await asyncio.sleep(0.2)  # Wait before trying the next delta
                         continue  # Proceed to try with the next delta in the range
             except SolanaRpcException:
@@ -480,7 +489,7 @@ async def retrieve_metadata(token_mint: str, session=None, client=None):
                             return
 
                         try:
-                            block_txs = await client.get_block(deploy_slot + tries, max_supported_transaction_version=0)
+                            block_txs = await client.get_block(deploy_slot + tries)#, max_supported_transaction_version=0)
                             block_txs = json.loads(block_txs.to_json())['result']['transactions']
                             slot_txs_plus_10.extend(block_txs)
                         except (RPCException, SolanaRpcException):
@@ -835,6 +844,8 @@ async def get_num_holders(mint='', session=None, birdeye_api_key='813c7191c5f24a
                     await asyncio.sleep(delay)
                 else:
                     return None
+    except ServerDisconnectedError:
+        print('Birdeye Server Disconnected')
     finally:
         if new_session:
             await session.close()
