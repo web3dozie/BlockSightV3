@@ -4,10 +4,9 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 from utils import token_required
 from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data, create_referral_code
 from walletVettingModule.wallet_vetting_utils import is_valid_wallet, fetch_tg_leaderboard, fetch_wallet_leaderboard
-from core import analyse_wallet
+from core import analyse_wallet, vet_channel
 import json, aiohttp, jwt, math
 from time import time
-
 web_blueprint = Blueprint('web', __name__)
 
 
@@ -195,15 +194,40 @@ async def create_ref_code():
 async def web_analyse_wallet(wallet_address):
     return await analyse_wallet(wallet_address)
 
-
-@web_blueprint.route("/get-wallets-leaderboard")
+@web_blueprint.route("/analyse-tgt/<channel>")
 @token_required
-async def web_wallets_leaderboard():
+async def web_analyse_tg(channel):
+    return await vet_channel(channel)
+
+
+@web_blueprint.route("/get-wallets-leaderboard/<window>")
+@token_required
+async def web_wallets_leaderboard(window):
+    page = request.args.get("page", default=1, type=int)
+    sort_by = request.args.get("sort", type=str, default='win_rate')
+    direction = request.args.get("direction", type=str, default='desc')
+
+    total_pages = 15
+
     try:
-        retv = dict()
-        retv["30d"] = await fetch_wallet_leaderboard(current_app.pool, '30d')
-        retv["7d"] = await fetch_wallet_leaderboard(current_app.pool, '07d')
-        retv["3d"] = await fetch_wallet_leaderboard(current_app.pool, '03d')
+        ld_data = await fetch_wallet_leaderboard(current_app.pool, window, sort_by=sort_by, direction=direction)
+
+        rows_per_page = math.floor(len(ld_data) / total_pages)
+
+        page_data = ld_data[rows_per_page * (page-1) : rows_per_page * page]
+
+        if page > 1:
+            prev = f"/get-wallets-leaderboard/{window}?page={page-1}"
+        else:
+            prev = "None"
+
+        if page < total_pages:
+            next = f"/get-wallets-leaderboard/{window}?page={page+1}"
+        else:
+            next = "None"
+
+        retv = {"page-data": page_data, "prev": prev, "next": next}
+
 
         return retv
     except Exception as e:
@@ -236,4 +260,5 @@ async def tg_leaderboard(window):
     else:
         next = "None"
 
-    return {"page-data": page_data, "prev": prev, "next": next}
+    retv = {"page-data": page_data, "prev": prev, "next": next}
+    return retv

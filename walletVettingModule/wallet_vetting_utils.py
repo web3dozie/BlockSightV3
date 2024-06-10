@@ -1027,13 +1027,13 @@ async def parse_for_swaps(tx_data):
     return txs
 
 
-async def fetch_wallet_leaderboard(pool, window='30d'):
+async def fetch_wallet_leaderboard(pool, window='30d', sort_by='win_rate', direction='desc'):
 
     if window not in ['30d', '03d', '07d']:
         window = '30d'
 
     min_trades = 5 if window == '30d' else 2
-    conn = await pool.acquire()
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=pg_db_url)
 
     query = (f"SELECT * FROM wallets WHERE trades >= {min_trades} AND window_value = $1 AND avg_size >= 10 "
              "ORDER BY win_rate")
@@ -1054,7 +1054,13 @@ async def fetch_wallet_leaderboard(pool, window='30d'):
                                              wallet['avg_size'], wallet['pnl'], window=window_int))
         graded_list.append(wallet)
 
-    await pool.release(conn)
+    await pool.release(conn) if pool else await conn.close()
+
+    # Sorting step
+    if direction == 'desc':
+        graded_list = sorted(graded_list, key=lambda d: d[sort_by], reverse=True)
+    else:
+        graded_list = sorted(graded_list, key=lambda d: d[sort_by])
 
     return graded_list
 
