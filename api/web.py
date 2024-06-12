@@ -2,7 +2,7 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 
 # from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
-from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data, create_referral_code
+from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data, create_referral_code, get_all_users
 from walletVettingModule.wallet_vetting_utils import is_valid_wallet, fetch_tg_leaderboard, fetch_wallet_leaderboard
 from core import analyse_wallet, vet_channel
 import json, aiohttp, jwt, math
@@ -204,12 +204,11 @@ async def web_analyse_tg(channel):
 @token_required
 async def web_wallets_leaderboard(window):
     page = request.args.get("page", default=1, type=int)
-    sort_by = request.args.get("sort", type=str, default='win_rate')
-    direction = request.args.get("direction", type=str, default='desc')
-
-    total_pages = 15
 
     try:
+        sort_by = request.args.get("sort", type=str, default='win_rate')
+        direction = request.args.get("direction", type=str, default='desc')
+        total_pages = request.args.get("total_pages", type=int, default=15)
         ld_data = await fetch_wallet_leaderboard(current_app.pool, window, sort_by=sort_by, direction=direction)
 
         rows_per_page = math.floor(len(ld_data) / total_pages)
@@ -217,12 +216,12 @@ async def web_wallets_leaderboard(window):
         page_data = ld_data[rows_per_page * (page-1) : rows_per_page * page]
 
         if page > 1:
-            prev = f"/get-wallets-leaderboard/{window}?page={page-1}"
+            prev = f"/get-wallets-leaderboard/{window}?page={page-1}&total_pages={total_pages}"
         else:
             prev = "None"
 
         if page < total_pages:
-            next = f"/get-wallets-leaderboard/{window}?page={page+1}"
+            next = f"/get-wallets-leaderboard/{window}?page={page+1}&total_pages={total_pages}"
         else:
             next = "None"
 
@@ -236,29 +235,63 @@ async def web_wallets_leaderboard(window):
 
 
 @web_blueprint.route("/get-tg-leaderboard/<window>")
-@token_required
+# @token_required
 async def tg_leaderboard(window):
     page = request.args.get("page", default=1, type=int)
-    sort_by = request.args.get("sort", type=str, default='win_rate')
-    direction = request.args.get("direction", type=str, default='desc')
+    try:
+        sort_by = request.args.get("sort", type=str, default='win_rate')
+        direction = request.args.get("direction", type=str, default='desc')
+        total_pages = request.args.get("total_pages", type=int, default=15)
 
-    total_pages = 15
+        ld_data = await fetch_tg_leaderboard(current_app.pool, window, sort_by=sort_by, direction=direction)
+        
+        rows_per_page = math.floor(len(ld_data) / total_pages)
 
-    ld_data = await fetch_tg_leaderboard(current_app.pool, window, sort_by=sort_by, direction=direction)
-    
-    rows_per_page = math.floor(len(ld_data) / total_pages)
+        page_data = ld_data[rows_per_page * (page-1) : rows_per_page * page]
 
-    page_data = ld_data[rows_per_page * (page-1) : rows_per_page * page]
+        if page > 1:
+            prev = f"/get-tg-leaderboard/{window}?page={page-1}&total_pages={total_pages}"
+        else:
+            prev = "None"
 
-    if page > 1:
-        prev = f"/get-tg-leaderboard/{window}?page={page-1}"
-    else:
-        prev = "None"
+        if page < total_pages:
+            next = f"/get-tg-leaderboard/{window}?page={page+1}&total_pages={total_pages}"
+        else:
+            next = "None"
 
-    if page < total_pages:
-        next = f"/get-tg-leaderboard/{window}?page={page+1}"
-    else:
-        next = "None"
+        retv = {"page-data": page_data, "prev": prev, "next": next}
+        return retv
+    except Exception as e:
+        current_app.logger.error(f"Error {e} while fetching tg leaderboard page {page}")
+        return "Internal Server Error", 500
 
-    retv = {"page-data": page_data, "prev": prev, "next": next}
-    return retv
+@web_blueprint.route("/get-user-leaderboard")
+@token_required
+async def user_leaderboard():
+    page = request.args.get("page", default=1, type=int)
+    try:
+        total_pages = request.args.get("total_pages", type=int, default=15)
+        
+        ld_data = await get_all_users(pool=current_app.pool)
+        rows_per_page = math.floor(len(ld_data) / total_pages)
+
+        if rows_per_page <= 0:
+            return {"page_data": ld_data, "prev":None, "next":None}
+
+        page_data = ld_data[rows_per_page * (page-1) : rows_per_page * page]
+
+        if page > 1:
+            prev = f"/get-user-leaderboard?page={page-1}&total_pages={total_pages}"
+        else:
+            prev = "None"
+
+        if page < total_pages:
+            next = f"/get-user-leaderboard?page={page+1}&total_pages={total_pages}"
+        else:
+            next = "None"
+
+        retv = {"page-data": page_data, "prev": prev, "next": next}
+        return retv
+    except Exception as e:
+        current_app.logger.error(f"Error {e} while fetching user leaderboard {page}")
+        return "Internal Server Error", 500
