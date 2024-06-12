@@ -546,7 +546,6 @@ async def discord_command_executor(text: str, user, client: discord.Client, mess
                                               "1189235897288372244/BSL_Gradient.png")
         return '', bad_command_embed
 
-
 async def add_user_to_db(username: str, user_id: int | None, current_plan='FREE', plan_end_date=9999999999,
                          db_path=pg_db_url, tg_id: int | None = None, pool=None):
 
@@ -665,16 +664,16 @@ async def get_user_data(username: str, db_path=pg_db_url, pool=None):
             await conn.close()
 
 
-async def get_all_users(db_path=pg_db_url):
-    conn = await asyncpg.connect(db_path)
+async def get_all_users(db_path=pg_db_url, pool=None):
+    conn = await pool.acquire() if pool else await asyncpg.connect(db_path)
     try:
         # Execute the query to fetch all users
-        query = 'SELECT * FROM users;'
+        query = 'SELECT * FROM users ORDER BY points DESC;'
         records = await conn.fetch(query)
         # Convert each record to a dictionary and return a list of dictionaries
         return [dict(record) for record in records]
     finally:
-        await conn.close()
+        await pool.release(conn) if pool else await conn.close()
 
 
 async def adjust_credits(username, amount, db_path=pg_db_url, spending=True, pool=None):
