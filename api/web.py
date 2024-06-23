@@ -24,7 +24,7 @@ async def handle_is_signed_up():
     try:
         user_data = await get_user_data(username=decoded_token['user_name'])
     except Exception as e:
-        current_app.logger.error(f"error {e} while getting user data in handle_is_signed_up")
+        current_app.logger.error(f"error {e} while getting user data in handle_is_signed_up", f"request data: {request.url}, {request.args}")
         return "Internal Server Error", 500
 
     if not user_data['referral_used']:
@@ -45,7 +45,7 @@ async def handle_web_discord_redirect():
         with open('config.json', 'r') as file:
             config = json.load(file)
     except:
-        print("config.json required")
+        current_app.logger.error("config.json required")
         return "Server Error", 500
 
     code = request.args.get("code")
@@ -73,12 +73,12 @@ async def handle_web_discord_redirect():
         async with aiohttp.ClientSession() as session:
             async with session.post("https://discord.com/api/oauth2/token", headers=headers, data=data) as response:
                 if response.status != 200:
-                    print(response.url, response.content_type, await response.text())
+                    current_app.logger.error("error from discord: ", response.url, await response.text(), f"request data: {request.url}, {request.args}")
                     return "Internal Server Error", 500
                 response = await response.json()
                 access_token = response.get("access_token")
     except Exception as e:
-        print(f"Exception {e} while getting access token")
+        current_app.logger.error(f"Exception {e} while getting access token", f"request data: {request.url}, {request.args}")
         return "Internal Server Error", 500
 
     user_info = None
@@ -87,14 +87,13 @@ async def handle_web_discord_redirect():
             async with session.get("https://discord.com/api/v10/users/@me",
                                    headers={"Authorization": f"Bearer {access_token}"}) as response:
                 if response.status != 200:
-                    print("Discord returned an error", response, response.status)
+                    current_app.logger.error("Discord returned an error", response, response.status, f"request data: {request.url}, {request.args}")
                     return "Internal Server Error", 500
 
                 response = await response.json()
-                print(response)
                 user_info = response
     except Exception as e:
-        print(f"Exception {e} while getting user info")
+        current_app.logger.error(f"Exception {e} while getting user info", f"request data: {request.url}, {request.args}")
         return "Internal Server Error", 500
 
     token = request.headers.get('Access-Token')
@@ -107,7 +106,7 @@ async def handle_web_discord_redirect():
         await add_user_to_db(username=user_info["username"], user_id=int(user_info["id"]), pool=current_app.pool)
         await update_user_avatar(username=user_info["username"], avatar=user_info["avatar"], pool=current_app.pool)
     except Exception as e:
-        print(f"Exception {e} while adding user info to db")
+        current_app.logger.error(f"Exception {e} while adding user info to db", f"request data: {request.url}, {request.args}")
         return "Internal Server Error", 500
     
     payload = {"username": user_info["username"], "user_id": user_info["id"], "created_at":int(time())}
@@ -130,10 +129,9 @@ async def web_get_user_info():
     user_name = decoded_token["username"] #continue
     try:
         user_data = await get_user_data(username=user_name)
-        print(user_data)
         return user_data
     except Exception as e:
-        current_app.logger.error(e)
+        current_app.logger.error(e, f"request data: {request.url}, {request.args}")
         return "Internal Server Error", 500
 
 @web_blueprint.route("/update-user-data")
@@ -141,7 +139,6 @@ async def web_get_user_info():
 async def web_update_user_data():
     col_name = request.args.get("col", type=str)
     data = request.args.get("data")
-    print(col_name, data)
     if not col_name or not data:
         return "Bad Request: Missing required query param(s)", 400
     
@@ -158,10 +155,10 @@ async def web_update_user_data():
         if await edit_user_data(decoded_token["username"], data, col_name=col_name):
             return {"msg": "Success"}
         else:
-            current_app.logger.error(f"Failed to edit {col_name} user data for {decoded_token["username"]}")
+            current_app.logger.error(f"Failed to edit {col_name} user data for {decoded_token["username"]}", f"request data: {request.url}, {request.args}")
             return "Invalid data submitted", 400
     except Exception as e:
-        current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
+        current_app.logger.error(f"Error {e} in web/update user data", f"request data: {request.url}, {request.args}", stack_info=True)
         return f"Internal Server Error while updating user data", 500
 
 
@@ -185,7 +182,7 @@ async def create_ref_code():
         else:
             raise Exception("create referral_code failed")
     except Exception as e:
-        current_app.logger.error(f"Error {e} in web/update user data", stack_info=True)
+        current_app.logger.error(f"Error {e} in web/update user data", f"request data: {request.url}, {request.args}", stack_info=True)
         return f"Internal Server Error while updating user data", 500
 
 
@@ -230,7 +227,7 @@ async def web_wallets_leaderboard(window):
 
         return retv
     except Exception as e:
-        current_app.logger.error(e, stack_info=True)
+        current_app.logger.error(e, f"request data: {request.url}, {request.args}", stack_info=True)
         return f"Internal Server Error while fetching wallet leaderboard", 500
 
 
@@ -262,7 +259,7 @@ async def tg_leaderboard(window):
         retv = {"page-data": page_data, "prev": prev, "next": next}
         return retv
     except Exception as e:
-        current_app.logger.error(f"Error {e} while fetching tg leaderboard page {page}")
+        current_app.logger.error(f"Error {e} while fetching tg leaderboard page {page}", f"request data: {request.url}, {request.args}")
         return "Internal Server Error", 500
 
 @web_blueprint.route("/get-user-leaderboard")
@@ -293,5 +290,5 @@ async def user_leaderboard():
         retv = {"page-data": page_data, "prev": prev, "next": next}
         return retv
     except Exception as e:
-        current_app.logger.error(f"Error {e} while fetching user leaderboard {page}")
+        current_app.logger.error(f"Error {e} while fetching user leaderboard {page}", f"request data: {request.url}, {request.args}")
         return "Internal Server Error", 500

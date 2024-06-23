@@ -800,7 +800,7 @@ async def adjust_points(username, amount, multiplier=1, db_path=pg_db_url, pool=
             await conn.close()
 
 
-async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url, pool=None):
+async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url, pool=None, overwrite=False):
     # Define a dictionary mapping valid column names to their SQL-safe names
     valid_columns = {
         'twitter': 'twitter',
@@ -819,28 +819,32 @@ async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url, poo
     # Get the SQL-safe column name from the dictionary
     safe_col_name = valid_columns[col_name]
 
+    # Prepare the query to update the specified column using the safe column name
+    query = f"UPDATE users SET {safe_col_name} = $1 WHERE username = $2"
+    if not overwrite :
+        query += f" AND {safe_col_name} IS NULL;"
+
     # Connect to the database and perform the update
     if pool:
         async with pool.acquire() as conn:
             try:
-                # Prepare the query to update the specified column using the safe column name
-                query = f"UPDATE users SET {safe_col_name} = $1 WHERE username = $2 AND {safe_col_name} IS NULL;"
                 result = await conn.execute(query, new_data, username)
 
                 # Check if the update was successful
                 return result == 'UPDATE 1'  # This checks if exactly one row was updated
-            finally:
-                await conn.close()
+            except Exception as e:
+                raise e
 
     else:
         conn = await asyncpg.connect(db_path)
         try:
             # Prepare the query to update the specified column using the safe column name
-            query = f"UPDATE users SET {safe_col_name} = $1 WHERE username = $2 AND {safe_col_name} IS NULL;"
             result = await conn.execute(query, new_data, username)
 
             # Check if the update was successful
             return result == 'UPDATE 1'  # This checks if exactly one row was updated
+        except Exception as e:
+                raise e
         finally:
             await conn.close()
 
