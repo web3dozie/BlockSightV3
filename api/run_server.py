@@ -7,7 +7,7 @@ from telegram import telegram_blueprint
 from web import web_blueprint
 from core import core_blueprint
 
-from quart import Quart
+from quart import Quart, request
 
 app = Quart(__name__)
 app.register_blueprint(telegram_blueprint, url_prefix="/telegram")
@@ -52,9 +52,17 @@ async def create_pool_and_config():
 @app.after_request
 def add_cors_headers(response):
     # TODO CHANGE THIS IN PRODUCTION!
-    response.headers['Access-Control-Allow-Origin'] = 'http://localhost:3000'
-    response.headers['Access-Control-Allow-Credentials'] = 'true'
-    response.headers['Access-Control-Allow-Headers'] = 'Access-Token'
+    r = request.referrer[:-1]
+    white = ['http://localhost:3000','https://block-sight.vercel.app']
+    if r in white:
+        response.headers.add('Access-Control-Allow-Origin', r)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Headers', 'Cache-Control')
+        # response.headers.add('Access-Control-Allow-Headers', 'X-Requested-With')
+        response.headers.add('Access-Control-Allow-Headers', 'Access-Token')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE')
+    
     return response
 
 
