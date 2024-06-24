@@ -139,6 +139,8 @@ async def web_get_user_info():
 async def web_update_user_data():
     col_name = request.args.get("col", type=str)
     data = request.args.get("data")
+    overwrite = request.args.get("overwrite", type=bool, default=False)
+
     if not col_name or not data:
         return "Bad Request: Missing required query param(s)", 400
     
@@ -152,7 +154,7 @@ async def web_update_user_data():
         return "Invalid wallet submitted", 400
 
     try:
-        if await edit_user_data(decoded_token["username"], data, col_name=col_name):
+        if await edit_user_data(decoded_token["username"], data, col_name=col_name, overwrite=overwrite):
             return {"msg": "Success"}
         else:
             current_app.logger.error(f"Failed to edit {col_name} user data for {decoded_token["username"]}", f"request data: {request.url}, {request.args}")
