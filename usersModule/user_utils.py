@@ -807,7 +807,8 @@ async def edit_user_data(username, new_data, col_name='', db_path=pg_db_url, poo
         'telegram': 'telegram',
         'wallet': 'wallet',
         'email': 'email',
-        'referral-code': 'referral_code',
+        'ref-code': 'referral_code',
+        'ref-used': 'referral_used'
     }
 
     if col_name not in valid_columns:
