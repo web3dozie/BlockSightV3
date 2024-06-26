@@ -296,7 +296,7 @@ async def user_leaderboard():
         return "Internal Server Error", 500
 
 @web_blueprint.route("/get-token-data/<token>")
-@token_required
+# @token_required
 async def web_get_token_data(token):
     if not token:
         return 400, "Token not provided"

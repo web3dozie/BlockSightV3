@@ -21,13 +21,13 @@ def token_required(f):
         token = request.headers.get('Access-Token')
 
         if not token:
-            return jsonify({"msg": "Token is missing"}), 401
+            return jsonify({"msg": "Access Token is missing"}), 401
 
         decoded_jwt = None
         try:
             decoded_jwt = jwt.decode(token, config['blockSight_secret'], algorithms=["HS256"])
         except:
-            return jsonify({"msg": "Token is invalid"}), 401
+            return jsonify({"msg": "Access Token is invalid"}), 401
         
         token_dt = datetime.datetime.fromtimestamp(decoded_jwt["created_at"])
 
@@ -49,20 +49,20 @@ def token_and_verification_required(f):
         token = request.headers.get('Access-Token')
 
         if not token:
-            return jsonify({"msg": "Token is missing"}), 401
+            return jsonify({"msg": "Access Token is missing"}), 401
         
         decoded_jwt = None
         try:
             decoded_jwt = jwt.decode(token, config['blockSight_secret'], algorithms=["HS256"])
         except:
-            return jsonify({"msg": "Token is invalid"}), 401
+            return jsonify({"msg": "Access Token is invalid"}), 401
         
         token_dt = datetime.datetime.fromtimestamp(decoded_jwt["created_at"])
 
         now = datetime.datetime.now()
 
         if (now - token_dt).days > 7:
-            return jsonify({"msg": "Token expired"}), 401
+            return jsonify({"msg": "Access Token expired"}), 401
 
         
         try:
