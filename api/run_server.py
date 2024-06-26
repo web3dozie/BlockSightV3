@@ -53,7 +53,7 @@ async def create_pool_and_config():
 def add_cors_headers(response):
     # TODO CHANGE THIS IN PRODUCTION!
     white = ['http://localhost:3000','https://block-sight.vercel.app']
-    r = request.headers['Origin']
+    r = request.headers.get('Origin')
     if r in white:
         response.headers.add('Access-Control-Allow-Origin', r)
         response.headers.add('Access-Control-Allow-Credentials', 'true')
