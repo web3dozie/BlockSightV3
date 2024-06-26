@@ -157,7 +157,7 @@ async def web_update_user_data():
         if await edit_user_data(decoded_token["username"], data, col_name=col_name, overwrite=overwrite):
             return {"msg": "Success"}
         else:
-            current_app.logger.error(f"Failed to edit {col_name} user data for {decoded_token["username"]}", f"request data: {request.url}, {request.args}")
+            current_app.logger.error("Failed to edit %s user data \n for user %s \n request data: %s", col_name, decoded_token["username"], request.url)
             return "Invalid data submitted", 400
     except Exception as e:
         current_app.logger.error(f"Error {e} in web/update user data", f"request data: {request.url}, {request.args}", stack_info=True)
@@ -296,7 +296,7 @@ async def user_leaderboard():
         return "Internal Server Error", 500
 
 @web_blueprint.route("/get-token-data/<token>")
-# @token_required
+@token_required
 async def web_get_token_data(token):
     if not token:
         return 400, "Token not provided"
