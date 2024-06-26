@@ -3,7 +3,7 @@ from quart import Blueprint, request, make_response, jsonify, current_app
 # from dbs.db_operations import fetch_wallet_leaderboard
 from utils import token_required
 from usersModule.user_utils import add_user_to_db, get_user_data, update_user_avatar, edit_user_data, create_referral_code, get_all_users
-from walletVettingModule.wallet_vetting_utils import is_valid_wallet, fetch_tg_leaderboard, fetch_wallet_leaderboard
+from walletVettingModule.wallet_vetting_utils import is_valid_wallet, fetch_tg_leaderboard, fetch_wallet_leaderboard, fetch_token_data
 from core import analyse_wallet, vet_channel
 import json, aiohttp, jwt, math
 from time import time
@@ -234,7 +234,7 @@ async def web_wallets_leaderboard(window):
 
 
 @web_blueprint.route("/get-tg-leaderboard/<window>")
-# @token_required
+@token_required
 async def tg_leaderboard(window):
     page = request.args.get("page", default=1, type=int)
     try:
@@ -292,5 +292,17 @@ async def user_leaderboard():
         retv = {"page-data": page_data, "prev": prev, "next": next}
         return retv
     except Exception as e:
-        current_app.logger.error(f"Error {e} while fetching user leaderboard {page}", f"request data: {request.url}, {request.args}")
+        current_app.logger.error("Error %s \n while fetching user leaderboard %s \n request data: %s", e, page, request.url)
+        return "Internal Server Error", 500
+
+@web_blueprint.route("/get-token-data/<token>")
+@token_required
+async def web_get_token_data(token):
+    if not token:
+        return 400, "Token not provided"
+    try:
+        retv = await fetch_token_data(current_app.pool, token)
+        return retv
+    except Exception as e:
+        current_app.logger.error("Error: %s \n while fetching data for token %s \n request data: %s", e, token, request.url)
         return "Internal Server Error", 500

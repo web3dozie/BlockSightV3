@@ -1103,6 +1103,35 @@ async def fetch_tg_leaderboard(pool, window='30d', sort_by='win_rate', direction
 
     return graded_list
 
+async def fetch_token_data(pool, token):
+    conn = await pool.acquire() if pool else await asyncpg.connect(dsn=pg_db_url)
+    query = """
+            SELECT 
+                m.*, 
+                s.*
+            FROM 
+                metadata m
+            JOIN (
+                SELECT 
+                    token_mint, 
+                    MAX(call_time) AS max_call_time
+                FROM 
+                    snapshots
+                GROUP BY 
+                    token_mint
+            ) subquery ON m.token_mint = subquery.token_mint AND m.token_mint = $1
+            JOIN snapshots s ON s.token_mint = subquery.token_mint AND s.call_time = subquery.max_call_time;
+            """
+    try:
+        results = await conn.fetch(query, token)
+        if len(results) == 0:
+            return {}
+        return dict(results[0])
+    except Exception as e:
+        raise e
+    finally:
+        await pool.release(conn) if pool else await conn.close()
+
 
 if __name__ == '__main__':
     print(asyncio.run(process_wallet('3AL3N6WgbyMX8XpAV7TSJrHdDxQNDX7R1j5neXVAQVxA', window=7)))
